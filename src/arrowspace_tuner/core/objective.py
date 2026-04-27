@@ -1,5 +1,5 @@
 """
-objective.py — query-free retrieval-quality objective for ArrowSpace.
+objective_v2.py — query-free retrieval-quality objective for ArrowSpace.
 
 Proxy: fully-spectral MRR-Top0 (paper §2.8).
 Every corpus item acts as its own query anchor.
