@@ -1,0 +1,90 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "arrowspace_tuner"
+version = "0.1.0"
+description = "Hyperparameter discovery (eps auto-tuning) for ArrowSpace via Optuna."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Tommaso Moriondo", email = "moriondotommaso@gmail.com" },
+]
+requires-python = ">=3.12"
+keywords = [
+    "vector-search",
+    "spectral-analysis",
+    "hyperparameter-tuning",
+    "optuna",
+    "arrowspace",
+    "graph-laplacian",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+
+# ── Hard dependencies ──────────────────────────────────────────────────────
+# These are always required: the Rust wheel, Optuna, SciPy for Fiedler, NumPy.
+# plotly and pandas are NOT here — they are opt-in via [report].
+dependencies = [
+    "arrowspace>=0.26.0",
+    "numpy>=2.4.4",
+    "optuna>=4.8.0",
+    "scipy>=1.17.1",
+]
+
+# ── Optional extras ────────────────────────────────────────────────────────
+[project.optional-dependencies]
+
+# pip install arrowspace_tuner[report]
+# Needed for tuner.save_report() and all HTML/CSV output from reporter.py
+report = [
+    "plotly>=6.7.0",
+    "pandas>=3.0.0",
+]
+
+# pip install arrowspace_tuner[dev]
+# Full dev environment: testing + linting + type checking
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.9",
+    "mypy>=1.15",
+    "plotly>=6.7.0",   # needed to test reporter.py
+    "pandas>=3.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Genefold/arrowspace_tuner"
+Repository = "https://github.com/Genefold/arrowspace_tuner.git"
+
+# ── Hatchling config ───────────────────────────────────────────────────────
+[tool.hatch.build.targets.wheel]
+packages = ["src/arrowspace_tuner"]
+
+# ── Ruff ──────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "ANN"]
+ignore = ["ANN101"]
+
+# ── Mypy ──────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.13"
+strict = true
+ignore_missing_imports = true   # arrowspace has no stubs
+
+# ── Pytest ────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=arrowspace_tuner --cov-report=term-missing"
