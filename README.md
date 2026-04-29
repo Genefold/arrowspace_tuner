@@ -79,7 +79,7 @@ The dominant cost is building the ArrowSpace graph on N vectors. With `sample_n`
 
 | Setting | Per trial | 15 trials | Notes |
 |---|---|---|---|
-| Full corpus (50k) | ~23 min | ~5.8h | baseline |
+| sample_n = 50k | ~23 min | ~5.8h | baseline |
 | `sample_n=5_000` | ~1.5 min | **~27 min** | **33x faster, same best params** |
 
 The final build after the study always uses the full corpus.
