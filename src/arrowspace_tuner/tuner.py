@@ -64,6 +64,23 @@ class EpsTuner:
     n_probe : int
         Number of anchor queries per trial for the MRR proxy.
         Scales search_batch cost linearly; 50 is the default (~ 14% s.e.).
+    n_jobs : int
+        Number of parallel workers. Default 1 (serial, fully reproducible).
+
+        Set to -1 to use all available CPU cores for a ~N× speedup where
+        N = min(n_trials, cpu_count). Typical production usage::
+
+            EpsTuner(n_trials=30, n_jobs=-1)   # parallel, fast
+            EpsTuner(n_trials=15, n_jobs=1)    # serial, reproducible
+
+        Threading safety: each trial runs in a separate thread sharing
+        the same process. The objective closure is stateless, but
+        ArrowSpace’s .build() must be thread-safe. If you observe crashes
+        or corrupted results with n_jobs > 1, fall back to n_jobs=1.
+
+        Reproducibility: with n_jobs > 1 the trial execution order is
+        non-deterministic even with a fixed seed, so best_params may vary
+        between runs. Use n_jobs=1 for exact reproducibility.
 
     Attributes (available after .fit())
     ------------------------------------
@@ -96,6 +113,7 @@ class EpsTuner:
         tau_low:    float        = 0.1,
         tau_high:   float        = 2.0,
         n_probe:    int          = 50,
+        n_jobs:     int          = 1,
     ) -> None:
         self._cfg = StudyConfig(
             n_trials   = n_trials,
@@ -110,6 +128,7 @@ class EpsTuner:
             tau_low    = tau_low,
             tau_high   = tau_high,
             n_probe    = n_probe,
+            n_jobs     = n_jobs,
         )
 
         # Results — populated by .fit()
@@ -154,18 +173,12 @@ class EpsTuner:
 
         cfg = self._cfg
         logger.info(
-            "Starting EpsTuner: n_trials=%d  sample_n=%s  seed=%d",
-            cfg.n_trials, cfg.sample_n, cfg.seed,
+            "Starting EpsTuner: n_trials=%d  sample_n=%s  seed=%d  n_jobs=%d",
+            cfg.n_trials, cfg.sample_n, cfg.seed, cfg.n_jobs,
         )
 
         # ── create study ─────────────────────────────────────────────────────────
         sampler = optuna.samplers.TPESampler(seed=cfg.seed)
-        # MedianPruner: after n_startup_trials completed trials exist,
-        # prune any new trial whose intermediate score at step S falls
-        # below the median of all completed trials at the same step.
-        # n_warmup_steps=0: evaluate at every reported step immediately.
-        # n_startup_trials=4: need at least 4 complete trials before the
-        # pruner has enough comparison data to be meaningful.
         pruner  = optuna.pruners.MedianPruner(
             n_startup_trials = 4,
             n_warmup_steps   = 0,
@@ -181,7 +194,7 @@ class EpsTuner:
 
         # ── run optimisation ────────────────────────────────────────────────────
         objective = make_objective(embeddings, cfg)
-        study.optimize(objective, n_trials=cfg.n_trials)
+        study.optimize(objective, n_trials=cfg.n_trials, n_jobs=cfg.n_jobs)
 
         # ── guard: all trials pruned ───────────────────────────────────────────
         completed = [

@@ -74,6 +74,21 @@ class StudyConfig:
         Optuna study identifier. Used as folder name in reporter output.
     storage : str | None
         Optuna storage URL (e.g. "sqlite:///optuna.db"). None = in-memory.
+    n_jobs : int
+        Number of parallel workers for study.optimize(). Default: 1 (serial).
+        Set to -1 to use all available CPU cores, or any positive integer.
+
+        Threading safety note: Optuna n_jobs > 1 runs each trial in a
+        separate thread sharing the same Python process. The objective
+        closure itself is stateless (captures read-only numpy arrays), so
+        it is thread-safe. However, parallelism is only safe if the
+        underlying ArrowSpace Rust extension is thread-safe under concurrent
+        .build() calls. Verify this before setting n_jobs > 1 in production.
+
+        Reproducibility note: with n_jobs > 1 and TPESampler the trial
+        execution order is non-deterministic, so best_params may differ
+        across runs even with the same seed. Use n_jobs=1 for reproducible
+        comparisons.
 
     Search space — graph structure
     ------------------------------
@@ -105,6 +120,7 @@ class StudyConfig:
     seed:       int          = 54
     study_name: str          = "arrowspace_tuner"
     storage:    str | None   = None
+    n_jobs:     int          = 1
 
     # Search space — graph
     eps_low:  float = 0.3
