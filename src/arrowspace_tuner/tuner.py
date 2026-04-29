@@ -63,6 +63,7 @@ class EpsTuner:
         Search bounds for tau (ArrowSpace search temperature).
     n_probe : int
         Number of anchor queries per trial for the MRR proxy.
+        Scales search_batch cost linearly; 50 is the default (~ 14% s.e.).
 
     Attributes (available after .fit())
     ------------------------------------
@@ -94,7 +95,7 @@ class EpsTuner:
         k_high:     int          = 40,
         tau_low:    float        = 0.1,
         tau_high:   float        = 2.0,
-        n_probe:    int          = 200,
+        n_probe:    int          = 50,
     ) -> None:
         self._cfg = StudyConfig(
             n_trials   = n_trials,
@@ -119,7 +120,7 @@ class EpsTuner:
         self.best_mrr_proxy:  float | None          = None
         self.study:           optuna.Study | None   = None
 
-    # ── public interface ──────────────────────────────────────────────────────
+    # ── public interface ─────────────────────────────────────────────────────────
 
     def fit(
         self,
@@ -157,21 +158,32 @@ class EpsTuner:
             cfg.n_trials, cfg.sample_n, cfg.seed,
         )
 
-        # ── create study ──────────────────────────────────────────────────────
+        # ── create study ─────────────────────────────────────────────────────────
         sampler = optuna.samplers.TPESampler(seed=cfg.seed)
+        # MedianPruner: after n_startup_trials completed trials exist,
+        # prune any new trial whose intermediate score at step S falls
+        # below the median of all completed trials at the same step.
+        # n_warmup_steps=0: evaluate at every reported step immediately.
+        # n_startup_trials=4: need at least 4 complete trials before the
+        # pruner has enough comparison data to be meaningful.
+        pruner  = optuna.pruners.MedianPruner(
+            n_startup_trials = 4,
+            n_warmup_steps   = 0,
+        )
         study   = optuna.create_study(
             direction  = "maximize",
             study_name = cfg.study_name,
             storage    = cfg.storage,
             sampler    = sampler,
+            pruner     = pruner,
             load_if_exists = cfg.storage is not None,
         )
 
-        # ── run optimisation ──────────────────────────────────────────────────
+        # ── run optimisation ────────────────────────────────────────────────────
         objective = make_objective(embeddings, cfg)
         study.optimize(objective, n_trials=cfg.n_trials)
 
-        # ── guard: all trials pruned ──────────────────────────────────────────
+        # ── guard: all trials pruned ───────────────────────────────────────────
         completed = [
             t for t in study.trials
             if t.state == optuna.trial.TrialState.COMPLETE
@@ -199,7 +211,7 @@ class EpsTuner:
             self.best_params["tau"],
         )
 
-        # ── final build with best params ──────────────────────────────────────
+        # ── final build with best params ───────────────────────────────────────
         return self._final_build(embeddings)
 
     def save_report(self, out_dir: str = "results") -> "Path":  # noqa: F821
@@ -230,7 +242,7 @@ class EpsTuner:
         from .reporting import save_results
         return save_results(self.study, out_dir=out_dir)
 
-    # ── private helpers ───────────────────────────────────────────────────────
+    # ── private helpers ──────────────────────────────────────────────────────────
 
     def _validate(self, embeddings: np.ndarray) -> np.ndarray:
         """

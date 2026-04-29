@@ -15,6 +15,11 @@ Objective (maximise):
           + W_VAR  * log1p(var_lambda)   # spectral richness
 
 Hyperparameters optimised by Optuna: eps, k, tau
+
+Pruning checkpoints (MedianPruner in tuner.py):
+    step=0  after Fiedler   — cheap proxy for connectivity
+    step=1  after var_lambda — proxy for spectral richness
+    Both are BEFORE the expensive search_batch + MRR path.
 """
 from __future__ import annotations
 
@@ -55,7 +60,7 @@ def build_and_score(
         Graph construction parameters for this trial.
     trial : optuna.Trial | None
         If provided, degenerate graphs raise TrialPruned instead of
-        returning zeros.
+        returning zeros. Also used for pruner checkpoints.
 
     Returns
     -------
@@ -134,6 +139,15 @@ def build_and_score(
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
 
+    # ── pruner checkpoint 0: after Fiedler ─────────────────────────────────────
+    # Report fiedler as an early proxy score. The MedianPruner will cut
+    # this trial if its fiedler falls below the median of past trials.
+    # Only active after n_startup_trials=4 complete trials exist.
+    if trial is not None:
+        trial.report(fiedler, step=0)
+        if trial.should_prune():
+            raise optuna.TrialPruned()
+
     # ── degenerate guard 3: flat spectrum ─────────────────────────────────────
     if spread < 1e-10:
         logger.warning(
@@ -142,6 +156,14 @@ def build_and_score(
         if trial:
             raise optuna.TrialPruned()
         return fiedler, 0.0, None, None
+
+    # ── pruner checkpoint 1: after var_lambda ─────────────────────────────────
+    # Report a combined proxy (fiedler + spectral richness contribution)
+    # before the expensive search_batch + MRR step.
+    if trial is not None:
+        trial.report(fiedler + 0.5 * var_lambda, step=1)
+        if trial.should_prune():
+            raise optuna.TrialPruned()
 
     return fiedler, var_lambda, aspace, gl
 
@@ -207,7 +229,7 @@ def make_objective(
             topk=max(1, k // 2),
         )
 
-        # ── 3. build graph + spectral diagnostics ─────────────────────────────
+        # ── 3. build graph + spectral diagnostics (includes pruner steps 0,1) ──
         try:
             fiedler, var_lambda, aspace, gl = build_and_score(
                 emb_trial, params, trial
@@ -240,9 +262,7 @@ def make_objective(
 
         # ── 6. build k-NN index table ───────────────────────────────────────────
         # search_batch may return fewer than K_EVAL results for small graphs
-        # or when k < K_EVAL. We pad to K_EVAL with index 0 (a valid but
-        # neutral entry) and track actual row widths so the MRR sum only
-        # includes real neighbours.
+        # or when k < K_EVAL. Pre-allocate and pad; mask padded slots in MRR.
         P = len(probe_idx)
         knn_indices = np.zeros((P, K_EVAL), dtype=np.int64)
         row_widths  = np.zeros(P, dtype=np.int64)
@@ -254,8 +274,6 @@ def make_objective(
                 knn_indices[row, col] = idx_item
 
         # ── 7. spectral MRR-Top0 proxy (vectorised) ────────────────────────────
-        # T_qi = exp(-|λ_q - λ_i| / σ_λ): spectrally-close items are relevant.
-        # Pad columns beyond row_widths[row] are masked to zero contribution.
         lambdas      = np.array(aspace.lambdas(), dtype=np.float64)   # (N,)
         sigma        = float(np.std(lambdas)) + 1e-9
         lambda_probe = lambdas[probe_idx]                              # (P,)
@@ -264,11 +282,9 @@ def make_objective(
         l_nbrs = lambdas[knn_indices]            # (P, K)
         T      = np.exp(-np.abs(l_q - l_nbrs) / sigma)  # (P, K)
 
-        # Build a column mask so padded slots contribute zero
-        col_idx = np.arange(K_EVAL)                            # (K,)
+        col_idx = np.arange(K_EVAL)
         mask    = col_idx[None, :] < row_widths[:, None]       # (P, K) bool
         inv_rk  = 1.0 / np.arange(1, K_EVAL + 1)              # (K,)
-
         mrr_proxy = float(((T * inv_rk) * mask).sum(axis=1).mean())
 
         # ── 8. composite objective ────────────────────────────────────────────
