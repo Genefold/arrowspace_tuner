@@ -46,7 +46,19 @@ def fiedler_normalized(gl: object) -> float:
     connectivity: λ₂ = 0 means the graph is disconnected, higher values
     indicate stronger connectivity.
 
-    Used as one factor in the F** = fiedler × var(λ) objective.
+    Used as one factor in the composite objective.
+
+    Eigenvalue strategy
+    -------------------
+    N ≤ 5_000 : dense path via np.linalg.eigvalsh.
+        Always converges, zero ARPACK overhead, fastest at this scale.
+        Covers the sample_n=5_000 default path entirely.
+    N > 5_000 : shift-invert ARPACK (sigma=0.0, which="LM").
+        Finds the largest eigenvalues of L^{-1}, equivalent to the
+        smallest eigenvalues of L. 5–20× faster than which="SM" for
+        sparse PSD matrices and far more numerically stable.
+        tol=1e-4 is sufficient because the Fiedler value feeds into
+        log1p() — 4 significant digits is more than adequate.
 
     Parameters
     ----------
@@ -79,19 +91,32 @@ def fiedler_normalized(gl: object) -> float:
         d_inv_sqrt = sp.diags(1.0 / np.sqrt(safe_diag))
         L_norm     = d_inv_sqrt @ L @ d_inv_sqrt
 
-        # k=2: we need the two smallest eigenvalues; λ₁ ≈ 0, λ₂ = Fiedler
-        vals = spla.eigsh(
-            L_norm,
-            k=2,
-            which="SM",
-            return_eigenvectors=False,
-            tol=1e-6,
-            maxiter=2000,
-        )
+        # ── eigenvalue computation ───────────────────────────────────────────────
+        if n <= 5_000:
+            # Dense path: materialise and use full symmetric eigensolver.
+            # Always converges; competitive with ARPACK at this scale.
+            all_vals = np.linalg.eigvalsh(L_norm.toarray())
+            vals = all_vals[:2]  # two smallest: λ₀ ≈ 0, λ₁ = Fiedler
+        else:
+            # Shift-invert: finds largest eigenvalues of (L_norm - 0·I)^{-1}
+            # = L_norm^{-1}, which correspond to the *smallest* eigenvalues
+            # of L_norm. Correct mode for bottom-k of a PSD matrix.
+            # tol=1e-4: sufficient for log1p-weighted objective term.
+            vals = spla.eigsh(
+                L_norm,
+                k=2,
+                sigma=0.0,
+                which="LM",
+                return_eigenvectors=False,
+                tol=1e-4,
+                maxiter=500,
+            )
+
         fiedler = max(0.0, float(sorted(np.real(vals))[1]))
 
         logger.debug(
-            "fiedler_normalized: λ₂=%.6f  NNZ=%d  N=%d", fiedler, nnz, n
+            "fiedler_normalized: λ₂=%.6f  NNZ=%d  N=%d  path=%s",
+            fiedler, nnz, n, "dense" if n <= 5_000 else "shift-invert",
         )
         return fiedler
 
