@@ -110,6 +110,6 @@ class StudyConfig:
     tau_high: float = 1.0
 
     # MRR proxy
-    n_probe:  int   = 200
+    n_probe:  int   = 50
     max_clusters:   int   = 50     # sensible default; tune to your corpus size
     cluster_radius: float = 0.5    # sensible default; exposed for power users
