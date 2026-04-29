@@ -193,7 +193,7 @@ class EpsTuner:
         )
 
         # ── run optimisation ────────────────────────────────────────────────────
-        objective = make_objective(embeddings, cfg)
+        objective, best_cache = make_objective(embeddings, cfg)
         study.optimize(objective, n_trials=cfg.n_trials, n_jobs=cfg.n_jobs)
 
         # ── guard: all trials pruned ───────────────────────────────────────────
@@ -224,7 +224,15 @@ class EpsTuner:
             self.best_params["tau"],
         )
 
-        # ── final build with best params ───────────────────────────────────────
+        # ── final build: use cached objects if available (#9) ──────────────────
+        # When sample_n=None every trial built on the full corpus, so the
+        # best trial's aspace+gl are already correct. Skip _final_build.
+        if best_cache:
+            logger.info(
+                "Returning cached best-trial objects (skipping redundant build)"
+            )
+            return best_cache["aspace"], best_cache["gl"]
+
         return self._final_build(embeddings)
 
     def save_report(self, out_dir: str = "results") -> "Path":  # noqa: F821
@@ -282,6 +290,8 @@ class EpsTuner:
         """
         Rebuild ArrowSpace once with the best params found by the study.
         This is the (aspace, gl) pair returned to the user.
+        Only called when sample_n is set (subsample path), because in that
+        case the trial objects were built on a subset, not the full corpus.
         """
         from arrowspace import ArrowSpaceBuilder
 

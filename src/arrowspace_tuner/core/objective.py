@@ -20,10 +20,17 @@ Pruning checkpoints (MedianPruner in tuner.py):
     step=0  after Fiedler   — cheap proxy for connectivity
     step=1  after var_lambda — proxy for spectral richness
     Both are BEFORE the expensive search_batch + MRR path.
+
+Best-trial cache (#9):
+    When sample_n is None (full corpus path), make_objective returns a
+    best_cache dict that is updated in-place whenever a trial beats the
+    current best. EpsTuner reads this after study.optimize() and skips
+    the otherwise-redundant _final_build call.
 """
 from __future__ import annotations
 
 import logging
+import threading
 
 import numpy as np
 import scipy.sparse as sp
@@ -140,9 +147,6 @@ def build_and_score(
         return 0.0, 0.0, None, None
 
     # ── pruner checkpoint 0: after Fiedler ─────────────────────────────────────
-    # Report fiedler as an early proxy score. The MedianPruner will cut
-    # this trial if its fiedler falls below the median of past trials.
-    # Only active after n_startup_trials=4 complete trials exist.
     if trial is not None:
         trial.report(fiedler, step=0)
         if trial.should_prune():
@@ -158,8 +162,6 @@ def build_and_score(
         return fiedler, 0.0, None, None
 
     # ── pruner checkpoint 1: after var_lambda ─────────────────────────────────
-    # Report a combined proxy (fiedler + spectral richness contribution)
-    # before the expensive search_batch + MRR step.
     if trial is not None:
         trial.report(fiedler + 0.5 * var_lambda, step=1)
         if trial.should_prune():
@@ -173,12 +175,23 @@ def build_and_score(
 def make_objective(
     embeddings: np.ndarray,
     cfg:        StudyConfig,
-):
+) -> tuple[object, dict]:
     """
-    Return an Optuna objective function closed over embeddings and cfg.
+    Return ``(objective_fn, best_cache)`` closed over embeddings and cfg.
 
-    The returned callable is passed directly to study.optimize().
+    ``objective_fn`` is passed directly to ``study.optimize()``.
     It searches over eps, k, and tau simultaneously.
+
+    ``best_cache`` is a dict updated in-place whenever a trial beats the
+    current best score::
+
+        {"aspace": <ArrowSpace>, "gl": <GraphLaplacian>, "score": float}
+
+    When ``cfg.sample_n`` is ``None`` (full corpus path) the cached objects
+    were built on the full corpus and can be returned directly by
+    ``EpsTuner._final_build``, saving one redundant ``.build()`` call.
+    When ``cfg.sample_n`` is set the cache is never populated (the trial
+    objects were built on a subsample) so ``_final_build`` runs as normal.
 
     The corpus subsample and probe anchor indices are drawn ONCE here,
     before the inner closure is created, so every trial evaluates on the
@@ -195,11 +208,14 @@ def make_objective(
 
     Returns
     -------
-    Callable[[optuna.Trial], float]
+    objective_fn : Callable[[optuna.Trial], float]
         The Optuna objective function.
+    best_cache : dict
+        Mutable cache populated with the best trial's objects (see above).
     """
     # ── draw fixed subsample ONCE ─────────────────────────────────────────────
-    if cfg.sample_n and cfg.sample_n < len(embeddings):
+    using_subsample = bool(cfg.sample_n and cfg.sample_n < len(embeddings))
+    if using_subsample:
         rng       = np.random.default_rng(cfg.seed)
         idx       = rng.choice(len(embeddings), size=cfg.sample_n, replace=False)
         emb_fixed = embeddings[idx]
@@ -212,6 +228,12 @@ def make_objective(
     probe_idx_fixed = rng_probe.choice(
         n_fixed, size=min(cfg.n_probe, n_fixed), replace=False
     )
+
+    # ── best-trial cache (#9) ───────────────────────────────────────────────
+    # Only populated when using the full corpus (not a subsample), because
+    # subsample-built objects cannot be returned as the final (aspace, gl).
+    best_cache: dict = {}   # keys: "aspace", "gl", "score" when populated
+    _cache_lock = threading.Lock()  # protect concurrent updates (n_jobs > 1)
 
     def objective(trial: optuna.Trial) -> float:
 
@@ -261,8 +283,6 @@ def make_objective(
             raise optuna.TrialPruned()
 
         # ── 6. build k-NN index table ───────────────────────────────────────────
-        # search_batch may return fewer than K_EVAL results for small graphs
-        # or when k < K_EVAL. Pre-allocate and pad; mask padded slots in MRR.
         P = len(probe_idx)
         knn_indices = np.zeros((P, K_EVAL), dtype=np.int64)
         row_widths  = np.zeros(P, dtype=np.int64)
@@ -274,17 +294,17 @@ def make_objective(
                 knn_indices[row, col] = idx_item
 
         # ── 7. spectral MRR-Top0 proxy (vectorised) ────────────────────────────
-        lambdas      = np.array(aspace.lambdas(), dtype=np.float64)   # (N,)
+        lambdas      = np.array(aspace.lambdas(), dtype=np.float64)
         sigma        = float(np.std(lambdas)) + 1e-9
-        lambda_probe = lambdas[probe_idx]                              # (P,)
+        lambda_probe = lambdas[probe_idx]
 
-        l_q    = lambda_probe[:, None]           # (P, 1)
-        l_nbrs = lambdas[knn_indices]            # (P, K)
-        T      = np.exp(-np.abs(l_q - l_nbrs) / sigma)  # (P, K)
+        l_q    = lambda_probe[:, None]
+        l_nbrs = lambdas[knn_indices]
+        T      = np.exp(-np.abs(l_q - l_nbrs) / sigma)
 
-        col_idx = np.arange(K_EVAL)
-        mask    = col_idx[None, :] < row_widths[:, None]       # (P, K) bool
-        inv_rk  = 1.0 / np.arange(1, K_EVAL + 1)              # (K,)
+        col_idx   = np.arange(K_EVAL)
+        mask      = col_idx[None, :] < row_widths[:, None]
+        inv_rk    = 1.0 / np.arange(1, K_EVAL + 1)
         mrr_proxy = float(((T * inv_rk) * mask).sum(axis=1).mean())
 
         # ── 8. composite objective ────────────────────────────────────────────
@@ -294,7 +314,15 @@ def make_objective(
           + W_VAR  * float(np.log1p(var_lambda))
         )
 
-        # ── 9. log trial attributes ───────────────────────────────────────────
+        # ── 9. update best-trial cache (full-corpus path only) ──────────────────
+        if not using_subsample and aspace is not None:
+            with _cache_lock:
+                if score > best_cache.get("score", -1.0):
+                    best_cache["aspace"] = aspace
+                    best_cache["gl"]     = gl
+                    best_cache["score"]  = score
+
+        # ── 10. log trial attributes ──────────────────────────────────────────
         trial.set_user_attr("fiedler",    round(fiedler,    8))
         trial.set_user_attr("var_lambda", round(var_lambda, 8))
         trial.set_user_attr("mrr_proxy",  round(mrr_proxy,  6))
@@ -310,4 +338,4 @@ def make_objective(
         )
         return score
 
-    return objective
+    return objective, best_cache
