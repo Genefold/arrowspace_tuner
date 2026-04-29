@@ -41,7 +41,7 @@ dependencies = [
     "scipy>=1.17.1",
 ]
 
-# ── Optional extras ────────────────────────────────────────────────────────
+# ── Optional extras ─────────────────────────────────────────────────────────
 [project.optional-dependencies]
 
 # pip install arrowspace_tuner[report]
@@ -66,9 +66,23 @@ dev = [
 Homepage = "https://github.com/Genefold/arrowspace_tuner"
 Repository = "https://github.com/Genefold/arrowspace_tuner.git"
 
-# ── Hatchling config ───────────────────────────────────────────────────────
+# ── Hatchling config ───────────────────────────────────────────────────────────
 [tool.hatch.build.targets.wheel]
 packages = ["src/arrowspace_tuner"]
+exclude = [
+    "tests/",
+    "notebooks/",
+    "docs/",
+    ".github/",
+    "*.db",
+    "*.sqlite",
+    "*.ipynb",
+    ".ruff_cache/",
+    ".mypy_cache/",
+    ".pytest_cache/",
+    "dist/",
+    "*.egg-info/",
+]
 
 # ── Ruff ──────────────────────────────────────────────────────────────────
 [tool.ruff]
@@ -79,13 +93,13 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "ANN"]
 ignore = ["ANN101"]
 
-# ── Mypy ──────────────────────────────────────────────────────────────────
+# ── Mypy ────────────────────────────────────────────────────────────────────
 [tool.mypy]
 python_version = "3.12"
 strict = true
 ignore_missing_imports = true   # arrowspace has no stubs
 
-# ── Pytest ────────────────────────────────────────────────────────────────
+# ── Pytest ─────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=arrowspace_tuner --cov-report=term-missing"
