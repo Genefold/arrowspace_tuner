@@ -163,6 +163,12 @@ def make_objective(
     The returned callable is passed directly to study.optimize().
     It searches over eps, k, and tau simultaneously.
 
+    The corpus subsample and probe anchor indices are drawn ONCE here,
+    before the inner closure is created, so every trial evaluates on the
+    same fixed slice of the corpus. This gives TPE a deterministic,
+    stationary response surface to model — a prerequisite for the
+    surrogate to be meaningful.
+
     Parameters
     ----------
     embeddings : np.ndarray
@@ -175,15 +181,27 @@ def make_objective(
     Callable[[optuna.Trial], float]
         The Optuna objective function.
     """
+    # ── draw fixed subsample ONCE ─────────────────────────────────────────────
+    # Using trial.number as part of the seed would shift the corpus slice on
+    # every trial, making the objective non-stationary and degrading TPE.
+    if cfg.sample_n and cfg.sample_n < len(embeddings):
+        rng       = np.random.default_rng(cfg.seed)
+        idx       = rng.choice(len(embeddings), size=cfg.sample_n, replace=False)
+        emb_fixed = embeddings[idx]
+    else:
+        emb_fixed = embeddings
+
+    # ── draw fixed probe indices ONCE ─────────────────────────────────────────
+    n_fixed         = len(emb_fixed)
+    rng_probe       = np.random.default_rng(cfg.seed + 42)
+    probe_idx_fixed = rng_probe.choice(
+        n_fixed, size=min(cfg.n_probe, n_fixed), replace=False
+    )
+
     def objective(trial: optuna.Trial) -> float:
 
-        # ── 1. sample corpus for this trial ──────────────────────────────────
-        if cfg.sample_n and cfg.sample_n < len(embeddings):
-            rng       = np.random.default_rng(trial.number + cfg.seed)
-            idx       = rng.choice(len(embeddings), size=cfg.sample_n, replace=False)
-            emb_trial = embeddings[idx]
-        else:
-            emb_trial = embeddings
+        # ── 1. use fixed corpus slice (drawn once above) ──────────────────────
+        emb_trial = emb_fixed
 
         # ── 2. suggest hyperparameters ────────────────────────────────────────
         k   = trial.suggest_int(  "k",   cfg.k_low,   cfg.k_high)
@@ -214,16 +232,13 @@ def make_objective(
             )
             return 0.0
 
-        # ── 4. sample probe anchors ───────────────────────────────────────────
-        n         = len(emb_trial)
-        rng_probe = np.random.default_rng(trial.number + cfg.seed + 42)
-        probe_idx = rng_probe.choice(n, size=min(cfg.n_probe, n), replace=False)
-
-        # ── 5. k-NN retrieval via search_batch ────────────────────────────────
+        # ── 4. use fixed probe anchors (drawn once above) ─────────────────────
+        probe_idx  = probe_idx_fixed
         probe_embs = np.ascontiguousarray(
             emb_trial[probe_idx], dtype=np.float64
         )
 
+        # ── 5. k-NN retrieval via search_batch ────────────────────────────────
         try:
             batch_results = aspace.search_batch(probe_embs, gl, tau)
         except Exception as exc:
