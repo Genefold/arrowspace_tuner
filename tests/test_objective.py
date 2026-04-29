@@ -119,12 +119,13 @@ class TestFiedlerNormalized:
 class TestMakeObjective:
 
     def test_returns_callable(self, embeddings_small, fast_study_config):
-        obj = make_objective(embeddings_small, fast_study_config)
+        obj, cache = make_objective(embeddings_small, fast_study_config)
         assert callable(obj)
+        assert isinstance(cache, dict)
 
     def test_objective_returns_float(self, embeddings_small, fast_study_config):
-        study = optuna.create_study(direction="maximize")
-        obj   = make_objective(embeddings_small, fast_study_config)
+        study      = optuna.create_study(direction="maximize")
+        obj, _     = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=1)
 
         completed = [
@@ -135,8 +136,8 @@ class TestMakeObjective:
             assert isinstance(completed[0].value, float)
 
     def test_objective_score_nonnegative(self, embeddings_small, fast_study_config):
-        study = optuna.create_study(direction="maximize")
-        obj   = make_objective(embeddings_small, fast_study_config)
+        study      = optuna.create_study(direction="maximize")
+        obj, _     = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
 
         completed = [
@@ -147,8 +148,8 @@ class TestMakeObjective:
             assert t.value >= 0.0
 
     def test_user_attrs_populated(self, embeddings_small, fast_study_config):
-        study = optuna.create_study(direction="maximize")
-        obj   = make_objective(embeddings_small, fast_study_config)
+        study      = optuna.create_study(direction="maximize")
+        obj, _     = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
 
         completed = [
@@ -165,8 +166,8 @@ class TestMakeObjective:
             assert "n_probe"    in attrs
 
     def test_three_params_suggested(self, embeddings_small, fast_study_config):
-        study = optuna.create_study(direction="maximize")
-        obj   = make_objective(embeddings_small, fast_study_config)
+        study      = optuna.create_study(direction="maximize")
+        obj, _     = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
 
         completed = [
@@ -180,7 +181,7 @@ class TestMakeObjective:
         cfg          = fast_study_config
         cfg.sample_n = 50   # force subsampling on the 600-item fixture
         study        = optuna.create_study(direction="maximize")
-        obj          = make_objective(embeddings_medium, cfg)
+        obj, _       = make_objective(embeddings_medium, cfg)
         study.optimize(obj, n_trials=1)
 
         completed = [
@@ -190,11 +191,39 @@ class TestMakeObjective:
         if completed:
             assert completed[0].user_attrs["n_sample"] == 50
 
+    def test_best_cache_populated_when_full_corpus(
+        self, embeddings_small, fast_study_config
+    ):
+        """best_cache is filled when sample_n=None (full corpus path)."""
+        study      = optuna.create_study(direction="maximize")
+        obj, cache = make_objective(embeddings_small, fast_study_config)
+        study.optimize(obj, n_trials=fast_study_config.n_trials)
+
+        completed = [
+            t for t in study.trials
+            if t.state == optuna.trial.TrialState.COMPLETE
+        ]
+        if completed:
+            assert "aspace" in cache
+            assert "gl"     in cache
+            assert "score"  in cache
+            assert cache["score"] > 0.0
+
+    def test_best_cache_empty_when_subsampling(
+        self, embeddings_medium, fast_study_config
+    ):
+        """best_cache stays empty when sample_n is set (subsample path)."""
+        fast_study_config.sample_n = 50
+        study      = optuna.create_study(direction="maximize")
+        obj, cache = make_objective(embeddings_medium, fast_study_config)
+        study.optimize(obj, n_trials=1)
+        assert cache == {}
+
     def test_flat_embeddings_all_pruned_or_zero(
         self, embeddings_flat, fast_study_config
     ):
-        study = optuna.create_study(direction="maximize")
-        obj   = make_objective(embeddings_flat, fast_study_config)
+        study      = optuna.create_study(direction="maximize")
+        obj, _     = make_objective(embeddings_flat, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
 
         for t in study.trials:
