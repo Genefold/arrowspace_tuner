@@ -26,6 +26,7 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Typing :: Typed",
 ]
@@ -72,7 +73,7 @@ packages = ["src/arrowspace_tuner"]
 # ── Ruff ──────────────────────────────────────────────────────────────────
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "ANN"]
@@ -80,7 +81,7 @@ ignore = ["ANN101"]
 
 # ── Mypy ──────────────────────────────────────────────────────────────────
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.12"
 strict = true
 ignore_missing_imports = true   # arrowspace has no stubs
 

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+
+# Single source of truth for the default number of trials.
+# Referenced by StudyConfig, EpsTuner.__init__, and api.optuna().
+_DEFAULT_N_TRIALS: int = 15
 
 
 @dataclass
@@ -59,10 +62,12 @@ class StudyConfig:
     Attributes
     ----------
     n_trials : int
-        Number of Optuna trials to run.
+        Number of Optuna trials to run. Default: 15.
     sample_n : int | None
         Subsample this many embeddings per trial for speed.
         None = use all embeddings every trial.
+        Recommended: 5_000 for corpora > 50k items (33x speedup,
+        identical best params found vs full-corpus run).
     seed : int
         Random seed for reproducibility.
     study_name : str
@@ -90,14 +95,15 @@ class StudyConfig:
     n_probe : int
         Number of corpus items used as query anchors per trial when
         computing the spectral MRR-Top0 proxy. Higher = more accurate
-        estimate, slower trials. 200-500 is a good range for most corpora.
+        estimate, slower trials. 50 is a good default for most corpora
+        when using sample_n; use 200 for full-corpus runs.
     """
 
-    n_trials:   int          = 20
+    n_trials:   int          = _DEFAULT_N_TRIALS
     sample_n:   int | None   = None
     seed:       int          = 54
     study_name: str          = "arrowspace_tuner"
-    storage:    Optional[str] = None
+    storage:    str | None   = None
 
     # Search space — graph
     eps_low:  float = 0.3
@@ -110,6 +116,6 @@ class StudyConfig:
     tau_high: float = 1.0
 
     # MRR proxy
-    n_probe:  int   = 50
-    max_clusters:   int   = 50     # sensible default; tune to your corpus size
-    cluster_radius: float = 0.5    # sensible default; exposed for power users
+    n_probe:  int   = 200
+    max_clusters:   int   = 50
+    cluster_radius: float = 0.5

@@ -65,14 +65,17 @@ def embeddings_medium(rng) -> np.ndarray:
 @pytest.fixture(scope="session")
 def embeddings_flat(rng) -> np.ndarray:
     """
-    80 × 64 float64 embeddings drawn from a single tight Gaussian.
+    80 × 64 float64 embeddings drawn from a single tight Gaussian near origin.
 
     Intentionally degenerate: very low spectral variance.
     Used to test pruning paths in objective.py.
+
+    NOTE: do NOT L2-normalise — normalisation projects every vector onto
+    the unit sphere, destroying the "flat" property entirely. The * 0.01
+    scale is what makes all vectors nearly identical and thus produces a
+    degenerate graph when eps is small.
     """
-    arr = rng.standard_normal((80, D)).astype(np.float64) * 0.01
-    norms = np.linalg.norm(arr, axis=1, keepdims=True)
-    return arr / np.clip(norms, 1e-9, None)
+    return rng.standard_normal((80, D)).astype(np.float64) * 0.01
 
 
 @pytest.fixture(scope="session")

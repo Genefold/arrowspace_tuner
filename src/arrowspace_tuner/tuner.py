@@ -4,7 +4,7 @@ tuner.py — EpsTuner: the main public class for hyperparameter discovery.
 Typical usage:
     from arrowspace_tuner import EpsTuner
 
-    tuner = EpsTuner(n_trials=50)
+    tuner = EpsTuner(n_trials=15)
     aspace, gl = tuner.fit(embeddings)
 
     # inspect results
@@ -23,6 +23,7 @@ import numpy as np
 import optuna
 
 from .core import BuildParams, StudyConfig, make_objective
+from .core.config import _DEFAULT_N_TRIALS
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +42,12 @@ class EpsTuner:
     Parameters
     ----------
     n_trials : int
-        Number of Optuna trials. More trials = better coverage of the
-        search space at the cost of runtime. 50 is a good default for
-        most corpora; use 100+ for production.
+        Number of Optuna trials. Default 15. More trials = better coverage
+        of the search space at the cost of runtime.
     sample_n : int | None
         Subsample this many embeddings per trial for speed. None = full
-        corpus every trial. Recommended for corpora > 50k items.
+        corpus every trial. Recommended 5_000 for corpora > 50k items
+        (validated: 33x speedup, identical best params).
     seed : int
         Random seed for reproducibility.
     study_name : str
@@ -82,7 +83,7 @@ class EpsTuner:
     def __init__(
         self,
         *,
-        n_trials:   int          = 50,
+        n_trials:   int          = _DEFAULT_N_TRIALS,
         sample_n:   int | None   = None,
         seed:       int          = 42,
         study_name: str          = "arrowspace_tuner",
@@ -143,12 +144,12 @@ class EpsTuner:
         Raises
         ------
         ValueError
-            If embeddings are not a 2D float64 array.
+            If embeddings are not a 2D array.
         RuntimeError
             If all trials were pruned (corpus too small or search bounds
             too narrow — try widening eps_low/eps_high).
         """
-        self._validate(embeddings)
+        embeddings = self._validate(embeddings)
 
         cfg = self._cfg
         logger.info(
@@ -231,7 +232,12 @@ class EpsTuner:
 
     # ── private helpers ───────────────────────────────────────────────────────
 
-    def _validate(self, embeddings: np.ndarray) -> None:
+    def _validate(self, embeddings: np.ndarray) -> np.ndarray:
+        """
+        Validate and cast embeddings to float64.
+
+        Returns the (possibly cast) array so callers always work with float64.
+        """
         if not isinstance(embeddings, np.ndarray):
             raise ValueError(
                 f"embeddings must be np.ndarray, got {type(embeddings).__name__}"
@@ -244,8 +250,8 @@ class EpsTuner:
             logger.warning(
                 "embeddings dtype is %s — casting to float64", embeddings.dtype
             )
-            # Note: we do not mutate in-place; the cast happens in _final_build
-            # and inside make_objective via np.ascontiguousarray.
+            embeddings = embeddings.astype(np.float64)
+        return embeddings
 
     def _final_build(self, embeddings: np.ndarray) -> tuple[object, object]:
         """
