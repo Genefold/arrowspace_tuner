@@ -89,3 +89,8 @@ ignore_missing_imports = true   # arrowspace has no stubs
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=arrowspace_tuner --cov-report=term-missing"
+
+[dependency-groups]
+dev = [
+    "twine>=6.2.0",
+]

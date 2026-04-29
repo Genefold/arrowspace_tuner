@@ -1,0 +1,20 @@
+{
+  "trial": 10,
+  "score": 2.1297669026818293,
+  "params": {
+    "k": 38,
+    "eps": 1.6153764588256392,
+    "tau": 0.11433990670095684
+  },
+  "user_attrs": {
+    "fiedler": 0.65935125,
+    "var_lambda": 0.02153306,
+    "mrr_proxy": 2.894787,
+    "tau": 0.11434,
+    "n_sample": 50000,
+    "n_probe": 200
+  },
+  "timestamp": "20260429_060712",
+  "study_name": "cve_arrowspace_fstar",
+  "n_trials": 20
+}
