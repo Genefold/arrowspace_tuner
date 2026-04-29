@@ -19,7 +19,7 @@ from arrowspace_tuner.core import (
 )
 
 
-# ── BuildParams.to_dict ───────────────────────────────────────────────────────
+# ── BuildParams.to_dict ─────────────────────────────────────────────────────────
 
 class TestBuildParams:
 
@@ -46,12 +46,15 @@ class TestBuildParams:
 class TestBuildAndScore:
 
     def test_returns_four_values(self, embeddings_small):
-        params = BuildParams(eps=1.0, k=8, topk=4)
+        params = BuildParams(eps=1.5, k=8, topk=4)
         result = build_and_score(embeddings_small, params)
         assert len(result) == 4
 
     def test_valid_graph_nonzero_fiedler(self, embeddings_small):
-        params = BuildParams(eps=1.0, k=8, topk=4)
+        # eps=1.5 reliably connects the 4-cluster L2-normalised fixture.
+        # eps=1.0 produced a disconnected graph (all unit-sphere vectors
+        # have pairwise distances tightly clustered around 1.0).
+        params = BuildParams(eps=1.5, k=8, topk=4)
         fiedler, var_lambda, aspace, gl = build_and_score(embeddings_small, params)
         assert fiedler > 0.0
         assert var_lambda >= 0.0
@@ -80,38 +83,38 @@ class TestBuildAndScore:
         assert study.trials[0].state == optuna.trial.TrialState.PRUNED
 
     def test_fiedler_in_unit_interval(self, embeddings_small):
-        params = BuildParams(eps=1.0, k=8, topk=4)
+        params = BuildParams(eps=1.5, k=8, topk=4)
         fiedler, _, _, gl = build_and_score(embeddings_small, params)
         if gl is not None:
             assert 0.0 <= fiedler <= 1.0 + 1e-9   # small float tolerance
 
     def test_var_lambda_nonnegative(self, embeddings_small):
-        params = BuildParams(eps=1.0, k=8, topk=4)
+        params = BuildParams(eps=1.5, k=8, topk=4)
         _, var_lambda, _, _ = build_and_score(embeddings_small, params)
         assert var_lambda >= 0.0
 
 
-# ── fiedler_normalized ────────────────────────────────────────────────────────
+# ── fiedler_normalized ───────────────────────────────────────────────────────────
 
 class TestFiedlerNormalized:
 
     def test_returns_float(self, embeddings_small):
         from arrowspace import ArrowSpaceBuilder
-        params = BuildParams(eps=1.0, k=8, topk=4)
+        params = BuildParams(eps=1.5, k=8, topk=4)
         _, _, _, gl = build_and_score(embeddings_small, params)
         if gl is not None:
             result = fiedler_normalized(gl)
             assert isinstance(result, float)
 
     def test_value_in_unit_interval(self, embeddings_small):
-        params = BuildParams(eps=1.0, k=8, topk=4)
+        params = BuildParams(eps=1.5, k=8, topk=4)
         _, _, _, gl = build_and_score(embeddings_small, params)
         if gl is not None:
             f = fiedler_normalized(gl)
             assert 0.0 <= f <= 1.0 + 1e-9
 
 
-# ── make_objective ────────────────────────────────────────────────────────────
+# ── make_objective ──────────────────────────────────────────────────────────────
 
 class TestMakeObjective:
 
