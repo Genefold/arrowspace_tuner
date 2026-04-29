@@ -238,26 +238,38 @@ def make_objective(
             )
             raise optuna.TrialPruned()
 
-        # ── 6. build k-NN index table (vectorised, #11) ───────────────────────
+        # ── 6. build k-NN index table ───────────────────────────────────────────
+        # search_batch may return fewer than K_EVAL results for small graphs
+        # or when k < K_EVAL. We pad to K_EVAL with index 0 (a valid but
+        # neutral entry) and track actual row widths so the MRR sum only
+        # includes real neighbours.
         P = len(probe_idx)
-        knn_indices = np.fromiter(
-            (idx_item for results in batch_results for idx_item, _ in results[:K_EVAL]),
-            dtype=np.int64,
-            count=P * K_EVAL,
-        ).reshape(P, K_EVAL)
+        knn_indices = np.zeros((P, K_EVAL), dtype=np.int64)
+        row_widths  = np.zeros(P, dtype=np.int64)
+        for row, results in enumerate(batch_results):
+            hits = results[:K_EVAL]
+            w    = len(hits)
+            row_widths[row] = w
+            for col, (idx_item, _) in enumerate(hits):
+                knn_indices[row, col] = idx_item
 
-        # ── 7. spectral MRR-Top0 proxy (vectorised, #11) ──────────────────────
-        # T_qi = exp(-|λ_q - λ_i| / σ_λ): items spectrally close to the
-        # query anchor are treated as relevant. No ground-truth labels needed.
+        # ── 7. spectral MRR-Top0 proxy (vectorised) ────────────────────────────
+        # T_qi = exp(-|λ_q - λ_i| / σ_λ): spectrally-close items are relevant.
+        # Pad columns beyond row_widths[row] are masked to zero contribution.
         lambdas      = np.array(aspace.lambdas(), dtype=np.float64)   # (N,)
         sigma        = float(np.std(lambdas)) + 1e-9
         lambda_probe = lambdas[probe_idx]                              # (P,)
 
-        l_q      = lambda_probe[:, None]          # (P, 1)
-        l_nbrs   = lambdas[knn_indices]           # (P, K)
-        T        = np.exp(-np.abs(l_q - l_nbrs) / sigma)  # (P, K)
-        inv_rk   = 1.0 / np.arange(1, K_EVAL + 1)         # (K,)
-        mrr_proxy = float((T * inv_rk).sum(axis=1).mean())
+        l_q    = lambda_probe[:, None]           # (P, 1)
+        l_nbrs = lambdas[knn_indices]            # (P, K)
+        T      = np.exp(-np.abs(l_q - l_nbrs) / sigma)  # (P, K)
+
+        # Build a column mask so padded slots contribute zero
+        col_idx = np.arange(K_EVAL)                            # (K,)
+        mask    = col_idx[None, :] < row_widths[:, None]       # (P, K) bool
+        inv_rk  = 1.0 / np.arange(1, K_EVAL + 1)              # (K,)
+
+        mrr_proxy = float(((T * inv_rk) * mask).sum(axis=1).mean())
 
         # ── 8. composite objective ────────────────────────────────────────────
         score = (
