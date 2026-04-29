@@ -18,9 +18,9 @@ from .tuner import EpsTuner
 def optuna(
     embeddings: np.ndarray,
     *,
-    n_trials:   int        = 50,
+    n_trials:   int        = 15,
     sample_n:   int | None = None,
-    seed:       int        = 42,
+    seed:       int        = 54,
     study_name: str        = "arrowspace_fstar",
     storage:    str | None = None,
     eps_low:    float      = 0.3,
@@ -28,8 +28,8 @@ def optuna(
     k_low:      int        = 3,
     k_high:     int        = 40,
     tau_low:    float      = 0.1,
-    tau_high:   float      = 2.0,
-    n_probe:    int        = 200,
+    tau_high:   float      = 1.0,
+    n_probe:    int        = 2000,
 ) -> tuple[object, object]:
     """
     Auto-discover eps, k, and tau and return a ready-to-use (aspace, gl) pair.

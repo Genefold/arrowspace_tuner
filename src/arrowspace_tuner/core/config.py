@@ -93,10 +93,10 @@ class StudyConfig:
         estimate, slower trials. 200-500 is a good range for most corpora.
     """
 
-    n_trials:   int          = 50
+    n_trials:   int          = 20
     sample_n:   int | None   = None
-    seed:       int          = 42
-    study_name: str          = "arrowspace_fstar"
+    seed:       int          = 54
+    study_name: str          = "arrowspace_tuner"
     storage:    Optional[str] = None
 
     # Search space — graph
