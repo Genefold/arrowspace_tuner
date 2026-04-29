@@ -177,20 +177,64 @@ class EpsTuner:
             cfg.n_trials, cfg.sample_n, cfg.seed, cfg.n_jobs,
         )
 
-        # ── create study ─────────────────────────────────────────────────────────
-        sampler = optuna.samplers.TPESampler(seed=cfg.seed)
-        pruner  = optuna.pruners.MedianPruner(
+        # ── sampler: GPSampler → TPE multivariate fallback (#4) ─────────────────
+        # GPSampler (Gaussian Process / BoTorch) is the best choice for
+        # small trial budgets (≤30) on a low-dimensional continuous space.
+        # It requires optuna[botorch]; if that is not installed we fall back
+        # to TPESampler with multivariate=True and a reduced n_startup_trials
+        # so the tree model gets as many informed trials as possible.
+        try:
+            from optuna.samplers import GPSampler
+            sampler: optuna.samplers.BaseSampler = GPSampler(
+                seed             = cfg.seed,
+                n_startup_trials = 4,
+            )
+            logger.info("Sampler: GPSampler (BoTorch backend)")
+        except ImportError:
+            sampler = optuna.samplers.TPESampler(
+                seed             = cfg.seed,
+                n_startup_trials = 4,       # default 10 → 4: more informed trials
+                multivariate     = True,    # joint posterior over (eps, k, tau)
+                group            = True,
+            )
+            logger.info(
+                "Sampler: TPESampler(multivariate=True, n_startup_trials=4) "
+                "[install optuna[botorch] for GPSampler]"
+            )
+
+        # ── pruner ──────────────────────────────────────────────────────────────
+        pruner = optuna.pruners.MedianPruner(
             n_startup_trials = 4,
             n_warmup_steps   = 0,
         )
-        study   = optuna.create_study(
-            direction  = "maximize",
-            study_name = cfg.study_name,
-            storage    = cfg.storage,
-            sampler    = sampler,
-            pruner     = pruner,
+
+        # ── create study ─────────────────────────────────────────────────────────
+        study = optuna.create_study(
+            direction      = "maximize",
+            study_name     = cfg.study_name,
+            storage        = cfg.storage,
+            sampler        = sampler,
+            pruner         = pruner,
             load_if_exists = cfg.storage is not None,
         )
+
+        # ── warm-start: enqueue one known-good anchor trial (#4) ───────────────
+        # Gives the surrogate a reasonable starting point so trial 0 is
+        # never wasted on an arbitrary corner of the search space.
+        # Only enqueue when starting fresh (not resuming from storage).
+        completed_so_far = [
+            t for t in study.trials
+            if t.state == optuna.trial.TrialState.COMPLETE
+        ]
+        if not completed_so_far:
+            study.enqueue_trial(
+                {
+                    "eps": max(cfg.eps_low,  min(cfg.eps_high,  1.0)),
+                    "k":   max(cfg.k_low,    min(cfg.k_high,    15)),
+                    "tau": max(cfg.tau_low,  min(cfg.tau_high,  0.5)),
+                },
+                skip_if_exists=True,
+            )
 
         # ── run optimisation ────────────────────────────────────────────────────
         objective, best_cache = make_objective(embeddings, cfg)
@@ -208,8 +252,8 @@ class EpsTuner:
             )
 
         # ── store results ─────────────────────────────────────────────────────
-        best         = study.best_trial
-        self.study   = study
+        best             = study.best_trial
+        self.study       = study
         self.best_params     = best.params
         self.best_score      = best.value
         self.best_fiedler    = best.user_attrs.get("fiedler")
@@ -226,7 +270,7 @@ class EpsTuner:
 
         # ── final build: use cached objects if available (#9) ──────────────────
         # When sample_n=None every trial built on the full corpus, so the
-        # best trial's aspace+gl are already correct. Skip _final_build.
+        # best trial’s aspace+gl are already correct. Skip _final_build.
         if best_cache:
             logger.info(
                 "Returning cached best-trial objects (skipping redundant build)"
