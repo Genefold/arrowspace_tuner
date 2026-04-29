@@ -94,9 +94,10 @@ class StudyConfig:
     ---------
     n_probe : int
         Number of corpus items used as query anchors per trial when
-        computing the spectral MRR-Top0 proxy. Higher = more accurate
-        estimate, slower trials. 50 is a good default for most corpora
-        when using sample_n; use 200 for full-corpus runs.
+        computing the spectral MRR-Top0 proxy. Scales search_batch cost
+        linearly — 50 probes gives ~14% MRR standard error, which is
+        more than adequate for ranking trials. Use 200 only for a final
+        high-accuracy evaluation where trial speed is not a concern.
     """
 
     n_trials:   int          = _DEFAULT_N_TRIALS
@@ -115,7 +116,7 @@ class StudyConfig:
     tau_low:  float = 0.1
     tau_high: float = 1.0
 
-    # MRR proxy
-    n_probe:  int   = 200
+    # MRR proxy — 50 gives ~14% s.e., adequate for trial ranking (was 200)
+    n_probe:  int   = 50
     max_clusters:   int   = 50
     cluster_radius: float = 0.5

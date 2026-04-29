@@ -32,21 +32,14 @@ def gl_to_scipy(gl: object) -> sp.csr_matrix:
     return sp.csr_matrix((data, indices, indptr), shape=shape)
 
 
-def _get_nnz(gl: object) -> int:
-    """Return the number of non-zero entries in the graph Laplacian."""
-    return len(gl.to_csr()[0])
-
-
-def fiedler_normalized(gl: object) -> float:
+def fiedler_normalized_from_csr(L: sp.csr_matrix, nnz: int) -> float:
     """
-    Compute the normalised Fiedler value (λ₂) of the graph Laplacian.
+    Compute the normalised Fiedler value (λ₂) from a pre-built SciPy CSR
+    Laplacian matrix.
 
-    The Fiedler value is the second-smallest eigenvalue of the normalised
-    Laplacian L_norm = D^{-1/2} L D^{-1/2}. It measures algebraic
-    connectivity: λ₂ = 0 means the graph is disconnected, higher values
-    indicate stronger connectivity.
-
-    Used as one factor in the composite objective.
+    This is the hot path called from build_and_score. The caller is
+    responsible for building L and computing nnz from a single gl.to_csr()
+    call, avoiding redundant FFI roundtrips (#10).
 
     Eigenvalue strategy
     -------------------
@@ -55,26 +48,26 @@ def fiedler_normalized(gl: object) -> float:
         Covers the sample_n=5_000 default path entirely.
     N > 5_000 : shift-invert ARPACK (sigma=0.0, which="LM").
         Finds the largest eigenvalues of L^{-1}, equivalent to the
-        smallest eigenvalues of L. 5–20× faster than which="SM" for
-        sparse PSD matrices and far more numerically stable.
+        smallest eigenvalues of L. 5–20× faster than which="SM" and
+        far more numerically stable.
         tol=1e-4 is sufficient because the Fiedler value feeds into
         log1p() — 4 significant digits is more than adequate.
 
     Parameters
     ----------
-    gl : PyGraphLaplacian
-        The graph Laplacian returned by ArrowSpaceBuilder.build().
+    L : sp.csr_matrix
+        Pre-built normalised Laplacian (caller's responsibility).
+    nnz : int
+        Number of non-zero entries (already computed by caller).
 
     Returns
     -------
     float
-        λ₂ ∈ [0, 1]. Returns 0.0 on degenerate or disconnected graphs,
+        λ₂ ∈ [0, 1]. Returns 0.0 on degenerate/disconnected graphs
         and on any numerical failure.
     """
     try:
-        nnz   = _get_nnz(gl)
-        shape = gl.shape()
-        n     = shape[0]
+        n = L.shape[0]
 
         # Degenerate guard: fewer edges than nodes → nearly empty graph
         if nnz <= n:
@@ -83,25 +76,17 @@ def fiedler_normalized(gl: object) -> float:
             )
             return 0.0
 
-        L = gl_to_scipy(gl)
-
         # Normalise: L_norm = D^{-1/2} L D^{-1/2}
         diag       = np.array(L.diagonal(), dtype=np.float64)
         safe_diag  = np.where(diag > 1e-12, diag, 1e-12)
         d_inv_sqrt = sp.diags(1.0 / np.sqrt(safe_diag))
         L_norm     = d_inv_sqrt @ L @ d_inv_sqrt
 
-        # ── eigenvalue computation ───────────────────────────────────────────────
+        # ── eigenvalue computation ──────────────────────────────────────────
         if n <= 5_000:
-            # Dense path: materialise and use full symmetric eigensolver.
-            # Always converges; competitive with ARPACK at this scale.
             all_vals = np.linalg.eigvalsh(L_norm.toarray())
-            vals = all_vals[:2]  # two smallest: λ₀ ≈ 0, λ₁ = Fiedler
+            vals = all_vals[:2]
         else:
-            # Shift-invert: finds largest eigenvalues of (L_norm - 0·I)^{-1}
-            # = L_norm^{-1}, which correspond to the *smallest* eigenvalues
-            # of L_norm. Correct mode for bottom-k of a PSD matrix.
-            # tol=1e-4: sufficient for log1p-weighted objective term.
             vals = spla.eigsh(
                 L_norm,
                 k=2,
@@ -123,3 +108,31 @@ def fiedler_normalized(gl: object) -> float:
     except Exception as exc:
         logger.warning("fiedler_normalized failed: %s", exc, exc_info=True)
         return 0.0
+
+
+def fiedler_normalized(gl: object) -> float:
+    """
+    Public wrapper: compute the normalised Fiedler value from a raw
+    PyGraphLaplacian. Calls gl.to_csr() once internally.
+
+    Prefer fiedler_normalized_from_csr() in hot paths where the CSR
+    matrix has already been materialised to avoid a redundant FFI call.
+
+    Parameters
+    ----------
+    gl : PyGraphLaplacian
+        The graph Laplacian returned by ArrowSpaceBuilder.build().
+
+    Returns
+    -------
+    float
+        λ₂ ∈ [0, 1].
+    """
+    raw     = gl.to_csr()
+    shape   = gl.shape()
+    data    = np.asarray(raw[0], dtype=np.float64)
+    indices = np.asarray(raw[1], dtype=np.int32)
+    indptr  = np.asarray(raw[2], dtype=np.int32)
+    L       = sp.csr_matrix((data, indices, indptr), shape=shape)
+    nnz     = len(data)
+    return fiedler_normalized_from_csr(L, nnz)

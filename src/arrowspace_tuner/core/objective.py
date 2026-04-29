@@ -21,10 +21,11 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+import scipy.sparse as sp
 import optuna
 
 from .config import BuildParams, StudyConfig
-from .graph import fiedler_normalized
+from .graph import fiedler_normalized, fiedler_normalized_from_csr
 
 logger = logging.getLogger(__name__)
 
@@ -68,18 +69,9 @@ def build_and_score(
     gl : GraphLaplacian | None
         Live GraphLaplacian object. None on degenerate graphs.
     """
-    # Deferred import: arrowspace is a hard dep but we don't want it
-    # imported at module level so the library is importable in environments
-    # where only the pure-Python layer is installed (CI, docs, type checkers).
     from arrowspace import ArrowSpaceBuilder
 
     # ── build graph ───────────────────────────────────────────────────────────
-    # ArrowSpaceBuilder.build() can raise pyo3_runtime.PanicException when the
-    # corpus collapses into a single cluster (e.g. flat/near-identical vectors,
-    # or cluster_radius too large). PanicException is a BaseException, NOT an
-    # Exception, so a plain `except Exception` will NOT catch it.
-    # We catch BaseException here and re-raise only KeyboardInterrupt /
-    # SystemExit so the study loop can continue normally on degenerate inputs.
     try:
         aspace, gl = (
             ArrowSpaceBuilder()
@@ -100,9 +92,7 @@ def build_and_score(
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
 
-    # ── pre-flight: check graph shape before touching CSR data ───────────────
-    # If all embeddings collapsed into 1 cluster the Laplacian has shape (N,1)
-    # and any eigendecomposition will panic. Detect and prune early.
+    # ── pre-flight: check graph shape ─────────────────────────────────────────
     shape = gl.shape()
     if shape[1] < 2:
         logger.warning(
@@ -112,9 +102,14 @@ def build_and_score(
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
 
-    raw = gl.to_csr()
-    nnz = len(raw[0])
-    n   = shape[1]
+    # ── single FFI call: materialise CSR once (#10) ───────────────────────────
+    raw     = gl.to_csr()
+    data    = np.asarray(raw[0], dtype=np.float64)
+    indices = np.asarray(raw[1], dtype=np.int32)
+    indptr  = np.asarray(raw[2], dtype=np.int32)
+    n       = shape[1]
+    nnz     = len(data)
+    L       = sp.csr_matrix((data, indices, indptr), shape=(n, n))
 
     # ── degenerate guard 1: nearly empty graph ────────────────────────────────
     if nnz <= n:
@@ -125,7 +120,7 @@ def build_and_score(
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
 
-    fiedler    = fiedler_normalized(gl)
+    fiedler    = fiedler_normalized_from_csr(L, nnz)
     lambdas    = np.array(aspace.lambdas(), dtype=np.float64)
     spread     = float(lambdas.max() - lambdas.min()) if len(lambdas) > 1 else 0.0
     var_lambda = float(np.var(lambdas))               if len(lambdas) > 1 else 0.0
@@ -182,8 +177,6 @@ def make_objective(
         The Optuna objective function.
     """
     # ── draw fixed subsample ONCE ─────────────────────────────────────────────
-    # Using trial.number as part of the seed would shift the corpus slice on
-    # every trial, making the objective non-stationary and degrading TPE.
     if cfg.sample_n and cfg.sample_n < len(embeddings):
         rng       = np.random.default_rng(cfg.seed)
         idx       = rng.choice(len(embeddings), size=cfg.sample_n, replace=False)
@@ -200,7 +193,7 @@ def make_objective(
 
     def objective(trial: optuna.Trial) -> float:
 
-        # ── 1. use fixed corpus slice (drawn once above) ──────────────────────
+        # ── 1. fixed corpus slice ─────────────────────────────────────────────
         emb_trial = emb_fixed
 
         # ── 2. suggest hyperparameters ────────────────────────────────────────
@@ -215,9 +208,6 @@ def make_objective(
         )
 
         # ── 3. build graph + spectral diagnostics ─────────────────────────────
-        # Note: build_and_score already catches BaseException (Rust panics)
-        # and converts them to TrialPruned. We only need to re-raise
-        # TrialPruned here; all other exceptions are already handled.
         try:
             fiedler, var_lambda, aspace, gl = build_and_score(
                 emb_trial, params, trial
@@ -232,7 +222,7 @@ def make_objective(
             )
             return 0.0
 
-        # ── 4. use fixed probe anchors (drawn once above) ─────────────────────
+        # ── 4. fixed probe anchors ────────────────────────────────────────────
         probe_idx  = probe_idx_fixed
         probe_embs = np.ascontiguousarray(
             emb_trial[probe_idx], dtype=np.float64
@@ -248,31 +238,26 @@ def make_objective(
             )
             raise optuna.TrialPruned()
 
-        # ── 6. build k-NN index table ─────────────────────────────────────────
-        knn_indices = np.zeros((len(probe_idx), K_EVAL), dtype=np.int64)
-        for row, results in enumerate(batch_results):
-            for col, (idx_item, _score) in enumerate(results[:K_EVAL]):
-                knn_indices[row, col] = idx_item
+        # ── 6. build k-NN index table (vectorised, #11) ───────────────────────
+        P = len(probe_idx)
+        knn_indices = np.fromiter(
+            (idx_item for results in batch_results for idx_item, _ in results[:K_EVAL]),
+            dtype=np.int64,
+            count=P * K_EVAL,
+        ).reshape(P, K_EVAL)
 
-        # ── 7. spectral MRR-Top0 proxy ────────────────────────────────────────
-        # Topology factor: T_qi = exp(-|λ_q - λ_i| / σ_λ)
-        # Items spectrally close to the query anchor are treated as relevant.
-        # No ground-truth labels required.
+        # ── 7. spectral MRR-Top0 proxy (vectorised, #11) ──────────────────────
+        # T_qi = exp(-|λ_q - λ_i| / σ_λ): items spectrally close to the
+        # query anchor are treated as relevant. No ground-truth labels needed.
         lambdas      = np.array(aspace.lambdas(), dtype=np.float64)   # (N,)
         sigma        = float(np.std(lambdas)) + 1e-9
         lambda_probe = lambdas[probe_idx]                              # (P,)
 
-        mrr_scores = []
-        for row in range(len(probe_idx)):
-            lq     = lambda_probe[row]
-            nbrs   = knn_indices[row]                                  # (K,)
-            l_nbrs = lambdas[nbrs]
-            t_qi   = np.exp(-np.abs(lq - l_nbrs) / sigma)
-            mrr_scores.append(
-                float(np.sum(t_qi / np.arange(1, K_EVAL + 1)))
-            )
-
-        mrr_proxy = float(np.mean(mrr_scores))
+        l_q      = lambda_probe[:, None]          # (P, 1)
+        l_nbrs   = lambdas[knn_indices]           # (P, K)
+        T        = np.exp(-np.abs(l_q - l_nbrs) / sigma)  # (P, K)
+        inv_rk   = 1.0 / np.arange(1, K_EVAL + 1)         # (K,)
+        mrr_proxy = float((T * inv_rk).sum(axis=1).mean())
 
         # ── 8. composite objective ────────────────────────────────────────────
         score = (
