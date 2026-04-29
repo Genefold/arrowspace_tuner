@@ -9,4 +9,14 @@ wheels/
 # Virtual environments
 .venv
 
+# Test artefacts
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Local experiment outputs — keep folder, ignore contents
+results/*
+!results/.gitkeep
+
+# Local data
 data/
