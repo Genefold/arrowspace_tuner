@@ -10,6 +10,7 @@ Import from arrowspace_tuner directly:
 from .config import BuildParams, StudyConfig
 from .graph import fiedler_normalized, gl_to_scipy
 from .objective import build_and_score, make_objective
+__version__ = "0.1.0"
 
 __all__ = [
     # config

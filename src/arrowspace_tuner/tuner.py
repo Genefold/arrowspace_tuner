@@ -85,7 +85,7 @@ class EpsTuner:
         n_trials:   int          = 50,
         sample_n:   int | None   = None,
         seed:       int          = 42,
-        study_name: str          = "arrowspace_fstar",
+        study_name: str          = "arrowspace_tuner",
         storage:    str | None   = None,
         eps_low:    float        = 0.3,
         eps_high:   float        = 4.0,
