@@ -73,18 +73,48 @@ def build_and_score(
     # where only the pure-Python layer is installed (CI, docs, type checkers).
     from arrowspace import ArrowSpaceBuilder
 
-    aspace, gl = (
-        ArrowSpaceBuilder()
-        .with_dims_reduction(enabled=False, eps=None)
-        .with_sampling("simple", params.sampling_rate)
-        .with_cluster_max_clusters(params.max_clusters)
-        .with_cluster_radius(params.cluster_radius)
-        .build(params.to_dict(), embeddings)
-    )
+    # ── build graph ───────────────────────────────────────────────────────────
+    # ArrowSpaceBuilder.build() can raise pyo3_runtime.PanicException when the
+    # corpus collapses into a single cluster (e.g. flat/near-identical vectors,
+    # or cluster_radius too large). PanicException is a BaseException, NOT an
+    # Exception, so a plain `except Exception` will NOT catch it.
+    # We catch BaseException here and re-raise only KeyboardInterrupt /
+    # SystemExit so the study loop can continue normally on degenerate inputs.
+    try:
+        aspace, gl = (
+            ArrowSpaceBuilder()
+            .with_dims_reduction(enabled=False, eps=None)
+            .with_sampling("simple", params.sampling_rate)
+            .with_cluster_max_clusters(params.max_clusters)
+            .with_cluster_radius(params.cluster_radius)
+            .build(params.to_dict(), embeddings)
+        )
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as exc:
+        logger.warning(
+            "ArrowSpace .build() failed (eps=%.4f k=%d): %s — pruning",
+            params.eps, params.k, exc,
+        )
+        if trial:
+            raise optuna.TrialPruned()
+        return 0.0, 0.0, None, None
+
+    # ── pre-flight: check graph shape before touching CSR data ───────────────
+    # If all embeddings collapsed into 1 cluster the Laplacian has shape (N,1)
+    # and any eigendecomposition will panic. Detect and prune early.
+    shape = gl.shape()
+    if shape[1] < 2:
+        logger.warning(
+            "Degenerate graph shape=%s (single cluster) | eps=%.4f", shape, params.eps
+        )
+        if trial:
+            raise optuna.TrialPruned()
+        return 0.0, 0.0, None, None
 
     raw = gl.to_csr()
     nnz = len(raw[0])
-    n   = gl.shape()[1]
+    n   = shape[1]
 
     # ── degenerate guard 1: nearly empty graph ────────────────────────────────
     if nnz <= n:
@@ -167,15 +197,20 @@ def make_objective(
         )
 
         # ── 3. build graph + spectral diagnostics ─────────────────────────────
+        # Note: build_and_score already catches BaseException (Rust panics)
+        # and converts them to TrialPruned. We only need to re-raise
+        # TrialPruned here; all other exceptions are already handled.
         try:
             fiedler, var_lambda, aspace, gl = build_and_score(
                 emb_trial, params, trial
             )
         except optuna.TrialPruned:
             raise
+        except (KeyboardInterrupt, SystemExit):
+            raise
         except Exception as exc:
             logger.warning(
-                "Trial %d build error: %s", trial.number, exc, exc_info=True
+                "Trial %d unexpected error: %s", trial.number, exc, exc_info=True
             )
             return 0.0
 
