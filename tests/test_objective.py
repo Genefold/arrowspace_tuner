@@ -15,6 +15,7 @@ from arrowspace_tuner.core import (
     fiedler_normalized,
     make_objective,
 )
+from arrowspace_tuner.core.config import StudyConfig
 
 # ── BuildParams.to_dict ─────────────────────────────────────────────────────────
 
