@@ -6,13 +6,16 @@ They require the arrowspace Rust wheel to be installed.
 """
 from __future__ import annotations
 
+import pathlib
+
+import numpy as np
 import pytest
 
 from arrowspace_tuner import EpsTuner, optuna
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def _make_tuner(**overrides) -> EpsTuner:
+def _make_tuner(**overrides: object) -> EpsTuner:
     """Return a fast EpsTuner suitable for tests."""
     defaults = dict(
         n_trials   = 3,
@@ -33,7 +36,7 @@ def _make_tuner(**overrides) -> EpsTuner:
 
 class TestEpsTunerInit:
 
-    def test_default_instantiation(self):
+    def test_default_instantiation(self) -> None:
         tuner = EpsTuner()
         assert tuner.best_params     is None
         assert tuner.best_score      is None
@@ -42,13 +45,13 @@ class TestEpsTunerInit:
         assert tuner.best_mrr_proxy  is None
         assert tuner.study           is None
 
-    def test_repr_before_fit(self):
+    def test_repr_before_fit(self) -> None:
         tuner = _make_tuner()
         r = repr(tuner)
         assert "not fitted" in r
         assert "n_trials=3" in r
 
-    def test_repr_reflects_bounds(self):
+    def test_repr_reflects_bounds(self) -> None:
         tuner = EpsTuner(eps_low=0.1, eps_high=5.0)
         assert "0.1" in repr(tuner)
         assert "5.0" in repr(tuner)
@@ -58,17 +61,21 @@ class TestEpsTunerInit:
 
 class TestEpsTunerValidation:
 
-    def test_raises_on_non_array(self):
+    def test_raises_on_non_array(self) -> None:
         tuner = _make_tuner()
         with pytest.raises(ValueError, match="np.ndarray"):
             tuner.fit([[1.0, 2.0], [3.0, 4.0]])  # list, not ndarray
 
-    def test_raises_on_1d(self, embeddings_1d):
+    def test_raises_on_1d(self, embeddings_1d: np.ndarray) -> None:
         tuner = _make_tuner()
         with pytest.raises(ValueError, match="2D"):
             tuner.fit(embeddings_1d)
 
-    def test_warns_on_float32(self, embeddings_wrong_dtype, caplog):
+    def test_warns_on_float32(
+        self,
+        embeddings_wrong_dtype: np.ndarray,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
         import logging
         tuner = _make_tuner()
         with caplog.at_level(logging.WARNING, logger="arrowspace_tuner.tuner"):
@@ -83,19 +90,19 @@ class TestEpsTunerValidation:
 
 class TestEpsTunerFit:
 
-    def test_returns_tuple_of_two(self, embeddings_small):
+    def test_returns_tuple_of_two(self, embeddings_small: np.ndarray) -> None:
         tuner  = _make_tuner()
         result = tuner.fit(embeddings_small)
         assert isinstance(result, tuple)
         assert len(result) == 2
 
-    def test_aspace_and_gl_not_none(self, embeddings_small):
+    def test_aspace_and_gl_not_none(self, embeddings_small: np.ndarray) -> None:
         tuner       = _make_tuner()
         aspace, gl  = tuner.fit(embeddings_small)
         assert aspace is not None
         assert gl     is not None
 
-    def test_best_params_populated(self, embeddings_small):
+    def test_best_params_populated(self, embeddings_small: np.ndarray) -> None:
         tuner = _make_tuner()
         tuner.fit(embeddings_small)
         assert tuner.best_params is not None
@@ -103,19 +110,19 @@ class TestEpsTunerFit:
         assert "k"   in tuner.best_params
         assert "tau" in tuner.best_params
 
-    def test_best_params_within_bounds(self, embeddings_small):
+    def test_best_params_within_bounds(self, embeddings_small: np.ndarray) -> None:
         tuner = _make_tuner(eps_low=0.5, eps_high=2.0, k_low=3, k_high=10)
         tuner.fit(embeddings_small)
         assert 0.5 <= tuner.best_params["eps"] <= 2.0
         assert 3   <= tuner.best_params["k"]   <= 10
 
-    def test_best_score_positive(self, embeddings_small):
+    def test_best_score_positive(self, embeddings_small: np.ndarray) -> None:
         tuner = _make_tuner()
         tuner.fit(embeddings_small)
         assert tuner.best_score is not None
         assert tuner.best_score > 0.0
 
-    def test_spectral_attrs_populated(self, embeddings_small):
+    def test_spectral_attrs_populated(self, embeddings_small: np.ndarray) -> None:
         tuner = _make_tuner()
         tuner.fit(embeddings_small)
         assert tuner.best_fiedler    is not None
@@ -125,27 +132,27 @@ class TestEpsTunerFit:
         assert tuner.best_var_lambda        >= 0.0
         assert tuner.best_mrr_proxy         >= 0.0
 
-    def test_study_stored(self, embeddings_small):
+    def test_study_stored(self, embeddings_small: np.ndarray) -> None:
         import optuna as optuna_lib
         tuner = _make_tuner()
         tuner.fit(embeddings_small)
         assert isinstance(tuner.study, optuna_lib.Study)
 
-    def test_repr_after_fit(self, embeddings_small):
+    def test_repr_after_fit(self, embeddings_small: np.ndarray) -> None:
         tuner = _make_tuner()
         tuner.fit(embeddings_small)
         r = repr(tuner)
         assert "not fitted" not in r
         assert "best_score" in r
 
-    def test_fit_is_reproducible(self, embeddings_small):
+    def test_fit_is_reproducible(self, embeddings_small: np.ndarray) -> None:
         tuner_a = _make_tuner(seed=0)
         tuner_b = _make_tuner(seed=0)
         tuner_a.fit(embeddings_small)
         tuner_b.fit(embeddings_small)
         assert tuner_a.best_params == tuner_b.best_params
 
-    def test_different_seeds_may_differ(self, embeddings_small):
+    def test_different_seeds_may_differ(self, embeddings_small: np.ndarray) -> None:
         tuner_a = _make_tuner(seed=0,  n_trials=5)
         tuner_b = _make_tuner(seed=99, n_trials=5)
         tuner_a.fit(embeddings_small)
@@ -155,7 +162,7 @@ class TestEpsTunerFit:
         assert tuner_a.best_score is not None
         assert tuner_b.best_score is not None
 
-    def test_sample_n_subsampling(self, embeddings_medium):
+    def test_sample_n_subsampling(self, embeddings_medium: np.ndarray) -> None:
         tuner = _make_tuner(sample_n=80)
         tuner.fit(embeddings_medium)
         # study user_attrs should report n_sample <= 80
@@ -166,7 +173,7 @@ class TestEpsTunerFit:
         if completed:
             assert completed[0].user_attrs["n_sample"] <= 80
 
-    def test_final_build_uses_full_corpus(self, embeddings_medium):
+    def test_final_build_uses_full_corpus(self, embeddings_medium: np.ndarray) -> None:
         # Even with sample_n set, the returned gl should reflect full N
         tuner      = _make_tuner(sample_n=80)
         aspace, gl = tuner.fit(embeddings_medium)
@@ -178,7 +185,7 @@ class TestEpsTunerFit:
 
 class TestEpsTunerFitErrors:
 
-    def test_raises_runtime_error_on_all_pruned(self, embeddings_flat):
+    def test_raises_runtime_error_on_all_pruned(self, embeddings_flat: np.ndarray) -> None:
         # Flat embeddings → all trials pruned → RuntimeError
         tuner = EpsTuner(
             n_trials  = 3,
@@ -198,12 +205,14 @@ class TestEpsTunerFitErrors:
 
 class TestEpsTunerSaveReport:
 
-    def test_raises_before_fit(self, tmp_path):
+    def test_raises_before_fit(self, tmp_path: pathlib.Path) -> None:
         tuner = _make_tuner()
         with pytest.raises(RuntimeError, match="fit"):
             tuner.save_report(out_dir=str(tmp_path))
 
-    def test_save_report_creates_files(self, embeddings_small, tmp_path):
+    def test_save_report_creates_files(
+        self, embeddings_small: np.ndarray, tmp_path: pathlib.Path
+    ) -> None:
         pytest.importorskip("pandas")   # skip if [report] not installed
         pytest.importorskip("plotly")
 
@@ -214,7 +223,9 @@ class TestEpsTunerSaveReport:
         assert (run_dir / "best_params.json").exists()
         assert (run_dir / "trials.csv").exists()
 
-    def test_best_params_json_content(self, embeddings_small, tmp_path):
+    def test_best_params_json_content(
+        self, embeddings_small: np.ndarray, tmp_path: pathlib.Path
+    ) -> None:
         pytest.importorskip("pandas")
         pytest.importorskip("plotly")
 
@@ -235,7 +246,7 @@ class TestEpsTunerSaveReport:
 
 class TestOptunaOneLiner:
 
-    def test_returns_two_objects(self, embeddings_small):
+    def test_returns_two_objects(self, embeddings_small: np.ndarray) -> None:
         result = optuna(
             embeddings_small,
             n_trials = 3,
@@ -250,7 +261,7 @@ class TestOptunaOneLiner:
         assert isinstance(result, tuple)
         assert len(result) == 2
 
-    def test_aspace_and_gl_not_none(self, embeddings_small):
+    def test_aspace_and_gl_not_none(self, embeddings_small: np.ndarray) -> None:
         aspace, gl = optuna(
             embeddings_small,
             n_trials = 3,
@@ -263,7 +274,7 @@ class TestOptunaOneLiner:
         assert aspace is not None
         assert gl     is not None
 
-    def test_accepts_keyword_overrides(self, embeddings_small):
+    def test_accepts_keyword_overrides(self, embeddings_small: np.ndarray) -> None:
         # Should not raise — all params are keyword-only
         aspace, gl = optuna(
             embeddings_small,

@@ -61,8 +61,8 @@ class ArrowSpaceProtocol(Protocol):
 
     def search_batch(
         self,
-        queries: Any,
-        gl: Any,
+        queries: np.ndarray,
+        gl: PyGraphLaplacian,
         tau: float,
     ) -> Sequence[Sequence[Tuple[int, float]]]:
         """Run a batch of queries against the index."""

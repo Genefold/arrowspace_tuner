@@ -6,6 +6,7 @@ They require the arrowspace Rust wheel to be installed.
 """
 from __future__ import annotations
 
+import numpy as np
 import optuna
 
 from arrowspace_tuner.core import (
@@ -19,12 +20,12 @@ from arrowspace_tuner.core import (
 
 class TestBuildParams:
 
-    def test_to_dict_keys(self):
+    def test_to_dict_keys(self) -> None:
         p = BuildParams(eps=1.0, k=10, topk=5)
         d = p.to_dict()
         assert set(d.keys()) == {"eps", "k", "topk", "p", "sigma"}
 
-    def test_to_dict_values(self):
+    def test_to_dict_values(self) -> None:
         p = BuildParams(eps=1.5, k=8, topk=4, p=2.0, sigma=None)
         d = p.to_dict()
         assert d["eps"]   == 1.5
@@ -32,7 +33,7 @@ class TestBuildParams:
         assert d["topk"]  == 4
         assert d["sigma"] is None
 
-    def test_topk_default_is_half_k(self):
+    def test_topk_default_is_half_k(self) -> None:
         p = BuildParams(k=12)
         assert p.topk == 5   # default, not k//2 — user must set explicitly
 
@@ -41,12 +42,12 @@ class TestBuildParams:
 
 class TestBuildAndScore:
 
-    def test_returns_four_values(self, embeddings_small):
+    def test_returns_four_values(self, embeddings_small: np.ndarray) -> None:
         params = BuildParams(eps=1.5, k=8, topk=4)
         result = build_and_score(embeddings_small, params)
         assert len(result) == 4
 
-    def test_valid_graph_nonzero_fiedler(self, embeddings_small):
+    def test_valid_graph_nonzero_fiedler(self, embeddings_small: np.ndarray) -> None:
         # eps=1.5 reliably connects the 4-cluster L2-normalised fixture.
         # eps=1.0 produced a disconnected graph (all unit-sphere vectors
         # have pairwise distances tightly clustered around 1.0).
@@ -57,7 +58,7 @@ class TestBuildAndScore:
         assert aspace is not None
         assert gl is not None
 
-    def test_degenerate_eps_too_large_returns_zeros(self, embeddings_small):
+    def test_degenerate_eps_too_large_returns_zeros(self, embeddings_small: np.ndarray) -> None:
         # eps so large every item connects to every other → NNZ >> N but
         # spectrum collapses; OR eps so small graph is empty → NNZ <= N
         params = BuildParams(eps=1e-6, k=3, topk=1)
@@ -66,10 +67,10 @@ class TestBuildAndScore:
         assert aspace is None
         assert gl is None
 
-    def test_degenerate_raises_pruned_with_trial(self, embeddings_small):
+    def test_degenerate_raises_pruned_with_trial(self, embeddings_small: np.ndarray) -> None:
         study = optuna.create_study(direction="maximize")
 
-        def obj(trial):
+        def obj(trial: optuna.Trial) -> float:
             params = BuildParams(eps=1e-6, k=3, topk=1)
             build_and_score(embeddings_small, params, trial=trial)
             return 0.0
@@ -78,13 +79,13 @@ class TestBuildAndScore:
         study.optimize(obj, n_trials=1)
         assert study.trials[0].state == optuna.trial.TrialState.PRUNED
 
-    def test_fiedler_in_unit_interval(self, embeddings_small):
+    def test_fiedler_in_unit_interval(self, embeddings_small: np.ndarray) -> None:
         params = BuildParams(eps=1.5, k=8, topk=4)
         fiedler, _, _, gl = build_and_score(embeddings_small, params)
         if gl is not None:
             assert 0.0 <= fiedler <= 1.0 + 1e-9   # small float tolerance
 
-    def test_var_lambda_nonnegative(self, embeddings_small):
+    def test_var_lambda_nonnegative(self, embeddings_small: np.ndarray) -> None:
         params = BuildParams(eps=1.5, k=8, topk=4)
         _, var_lambda, _, _ = build_and_score(embeddings_small, params)
         assert var_lambda >= 0.0
@@ -94,14 +95,14 @@ class TestBuildAndScore:
 
 class TestFiedlerNormalized:
 
-    def test_returns_float(self, embeddings_small):
+    def test_returns_float(self, embeddings_small: np.ndarray) -> None:
         params = BuildParams(eps=1.5, k=8, topk=4)
         _, _, _, gl = build_and_score(embeddings_small, params)
         if gl is not None:
             result = fiedler_normalized(gl)
             assert isinstance(result, float)
 
-    def test_value_in_unit_interval(self, embeddings_small):
+    def test_value_in_unit_interval(self, embeddings_small: np.ndarray) -> None:
         params = BuildParams(eps=1.5, k=8, topk=4)
         _, _, _, gl = build_and_score(embeddings_small, params)
         if gl is not None:
@@ -113,12 +114,12 @@ class TestFiedlerNormalized:
 
 class TestMakeObjective:
 
-    def test_returns_callable(self, embeddings_small, fast_study_config):
+    def test_returns_callable(self, embeddings_small: np.ndarray, fast_study_config: "StudyConfig") -> None:  # type: ignore[name-defined]  # noqa: F821
         obj, cache = make_objective(embeddings_small, fast_study_config)
         assert callable(obj)
         assert isinstance(cache, dict)
 
-    def test_objective_returns_float(self, embeddings_small, fast_study_config):
+    def test_objective_returns_float(self, embeddings_small: np.ndarray, fast_study_config: "StudyConfig") -> None:  # type: ignore[name-defined]  # noqa: F821
         study      = optuna.create_study(direction="maximize")
         obj, _     = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=1)
@@ -130,7 +131,7 @@ class TestMakeObjective:
         if completed:
             assert isinstance(completed[0].value, float)
 
-    def test_objective_score_nonnegative(self, embeddings_small, fast_study_config):
+    def test_objective_score_nonnegative(self, embeddings_small: np.ndarray, fast_study_config: "StudyConfig") -> None:  # type: ignore[name-defined]  # noqa: F821
         study      = optuna.create_study(direction="maximize")
         obj, _     = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
@@ -142,7 +143,7 @@ class TestMakeObjective:
         for t in completed:
             assert t.value >= 0.0
 
-    def test_user_attrs_populated(self, embeddings_small, fast_study_config):
+    def test_user_attrs_populated(self, embeddings_small: np.ndarray, fast_study_config: "StudyConfig") -> None:  # type: ignore[name-defined]  # noqa: F821
         study      = optuna.create_study(direction="maximize")
         obj, _     = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
@@ -160,7 +161,7 @@ class TestMakeObjective:
             assert "n_sample"   in attrs
             assert "n_probe"    in attrs
 
-    def test_three_params_suggested(self, embeddings_small, fast_study_config):
+    def test_three_params_suggested(self, embeddings_small: np.ndarray, fast_study_config: "StudyConfig") -> None:  # type: ignore[name-defined]  # noqa: F821
         study      = optuna.create_study(direction="maximize")
         obj, _     = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
@@ -172,7 +173,7 @@ class TestMakeObjective:
         if completed:
             assert set(completed[0].params.keys()) == {"eps", "k", "tau"}
 
-    def test_sample_n_respected(self, embeddings_medium, fast_study_config):
+    def test_sample_n_respected(self, embeddings_medium: np.ndarray, fast_study_config: "StudyConfig") -> None:  # type: ignore[name-defined]  # noqa: F821
         cfg          = fast_study_config
         cfg.sample_n = 50   # force subsampling on the 600-item fixture
         study        = optuna.create_study(direction="maximize")
@@ -187,8 +188,8 @@ class TestMakeObjective:
             assert completed[0].user_attrs["n_sample"] == 50
 
     def test_best_cache_populated_when_full_corpus(
-        self, embeddings_small, fast_study_config
-    ):
+        self, embeddings_small: np.ndarray, fast_study_config: "StudyConfig"  # type: ignore[name-defined]  # noqa: F821
+    ) -> None:
         """best_cache is filled when sample_n=None (full corpus path)."""
         study      = optuna.create_study(direction="maximize")
         obj, cache = make_objective(embeddings_small, fast_study_config)
@@ -205,8 +206,8 @@ class TestMakeObjective:
             assert cache["score"] > 0.0
 
     def test_best_cache_empty_when_subsampling(
-        self, embeddings_medium, fast_study_config
-    ):
+        self, embeddings_medium: np.ndarray, fast_study_config: "StudyConfig"  # type: ignore[name-defined]  # noqa: F821
+    ) -> None:
         """best_cache stays empty when sample_n is set (subsample path)."""
         fast_study_config.sample_n = 50
         study      = optuna.create_study(direction="maximize")
@@ -215,8 +216,8 @@ class TestMakeObjective:
         assert cache == {}
 
     def test_flat_embeddings_all_pruned_or_zero(
-        self, embeddings_flat, fast_study_config
-    ):
+        self, embeddings_flat: np.ndarray, fast_study_config: "StudyConfig"  # type: ignore[name-defined]  # noqa: F821
+    ) -> None:
         study      = optuna.create_study(direction="maximize")
         obj, _     = make_objective(embeddings_flat, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
