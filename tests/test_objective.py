@@ -114,12 +114,12 @@ class TestFiedlerNormalized:
 
 class TestMakeObjective:
 
-    def test_returns_callable(self, embeddings_small: np.ndarray, fast_study_config: "StudyConfig") -> None:  # type: ignore[name-defined]  # noqa: F821
+    def test_returns_callable(self, embeddings_small: np.ndarray, fast_study_config: StudyConfig) -> None:  # type: ignore[name-defined]  # noqa: F821
         obj, cache = make_objective(embeddings_small, fast_study_config)
         assert callable(obj)
         assert isinstance(cache, dict)
 
-    def test_objective_returns_float(self, embeddings_small: np.ndarray, fast_study_config: "StudyConfig") -> None:  # type: ignore[name-defined]  # noqa: F821
+    def test_objective_returns_float(self, embeddings_small: np.ndarray, fast_study_config: StudyConfig) -> None:  # type: ignore[name-defined]  # noqa: F821
         study      = optuna.create_study(direction="maximize")
         obj, _     = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=1)
@@ -131,7 +131,7 @@ class TestMakeObjective:
         if completed:
             assert isinstance(completed[0].value, float)
 
-    def test_objective_score_nonnegative(self, embeddings_small: np.ndarray, fast_study_config: "StudyConfig") -> None:  # type: ignore[name-defined]  # noqa: F821
+    def test_objective_score_nonnegative(self, embeddings_small: np.ndarray, fast_study_config: StudyConfig) -> None:  # type: ignore[name-defined]  # noqa: F821
         study      = optuna.create_study(direction="maximize")
         obj, _     = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
@@ -143,7 +143,7 @@ class TestMakeObjective:
         for t in completed:
             assert t.value >= 0.0
 
-    def test_user_attrs_populated(self, embeddings_small: np.ndarray, fast_study_config: "StudyConfig") -> None:  # type: ignore[name-defined]  # noqa: F821
+    def test_user_attrs_populated(self, embeddings_small: np.ndarray, fast_study_config: StudyConfig) -> None:  # type: ignore[name-defined]  # noqa: F821
         study      = optuna.create_study(direction="maximize")
         obj, _     = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
@@ -161,7 +161,7 @@ class TestMakeObjective:
             assert "n_sample"   in attrs
             assert "n_probe"    in attrs
 
-    def test_three_params_suggested(self, embeddings_small: np.ndarray, fast_study_config: "StudyConfig") -> None:  # type: ignore[name-defined]  # noqa: F821
+    def test_three_params_suggested(self, embeddings_small: np.ndarray, fast_study_config: StudyConfig) -> None:  # type: ignore[name-defined]  # noqa: F821
         study      = optuna.create_study(direction="maximize")
         obj, _     = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
@@ -173,7 +173,7 @@ class TestMakeObjective:
         if completed:
             assert set(completed[0].params.keys()) == {"eps", "k", "tau"}
 
-    def test_sample_n_respected(self, embeddings_medium: np.ndarray, fast_study_config: "StudyConfig") -> None:  # type: ignore[name-defined]  # noqa: F821
+    def test_sample_n_respected(self, embeddings_medium: np.ndarray, fast_study_config: StudyConfig) -> None:  # type: ignore[name-defined]  # noqa: F821
         cfg          = fast_study_config
         cfg.sample_n = 50   # force subsampling on the 600-item fixture
         study        = optuna.create_study(direction="maximize")
@@ -188,7 +188,7 @@ class TestMakeObjective:
             assert completed[0].user_attrs["n_sample"] == 50
 
     def test_best_cache_populated_when_full_corpus(
-        self, embeddings_small: np.ndarray, fast_study_config: "StudyConfig"  # type: ignore[name-defined]  # noqa: F821
+        self, embeddings_small: np.ndarray, fast_study_config: StudyConfig  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
         """best_cache is filled when sample_n=None (full corpus path)."""
         study      = optuna.create_study(direction="maximize")
@@ -206,7 +206,7 @@ class TestMakeObjective:
             assert cache["score"] > 0.0
 
     def test_best_cache_empty_when_subsampling(
-        self, embeddings_medium: np.ndarray, fast_study_config: "StudyConfig"  # type: ignore[name-defined]  # noqa: F821
+        self, embeddings_medium: np.ndarray, fast_study_config: StudyConfig  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
         """best_cache stays empty when sample_n is set (subsample path)."""
         fast_study_config.sample_n = 50
@@ -216,7 +216,7 @@ class TestMakeObjective:
         assert cache == {}
 
     def test_flat_embeddings_all_pruned_or_zero(
-        self, embeddings_flat: np.ndarray, fast_study_config: "StudyConfig"  # type: ignore[name-defined]  # noqa: F821
+        self, embeddings_flat: np.ndarray, fast_study_config: StudyConfig  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
         study      = optuna.create_study(direction="maximize")
         obj, _     = make_objective(embeddings_flat, fast_study_config)

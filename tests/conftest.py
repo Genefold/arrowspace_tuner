@@ -92,7 +92,7 @@ def embeddings_1d(rng: np.random.Generator) -> np.ndarray:
 # ── StudyConfig fixture ───────────────────────────────────────────────────────
 
 @pytest.fixture
-def fast_study_config() -> "StudyConfig":  # type: ignore[name-defined]  # noqa: F821
+def fast_study_config() -> StudyConfig:  # type: ignore[name-defined]  # noqa: F821
     """
     Minimal StudyConfig for fast unit tests.
 
