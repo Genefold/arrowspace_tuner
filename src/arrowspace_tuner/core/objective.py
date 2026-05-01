@@ -31,7 +31,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Protocol, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any, Protocol
 
 import numpy as np
 import optuna
@@ -64,7 +65,7 @@ class ArrowSpaceProtocol(Protocol):
         queries: np.ndarray,
         gl: PyGraphLaplacian,
         tau: float,
-    ) -> Sequence[Sequence[Tuple[int, float]]]:
+    ) -> Sequence[Sequence[tuple[int, float]]]:
         """Run a batch of queries against the index."""
         ...
 

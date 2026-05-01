@@ -165,7 +165,7 @@ def _save_html(fig: object, path: Path) -> None:
 def _print_summary(
     best:    FrozenTrial,
     run_dir: Path,
-    df:      "pd.DataFrame",
+    df:      pd.DataFrame,
 ) -> None:
     completed = df[df["state"] == "COMPLETE"]
     print("\n" + "=" * 60)

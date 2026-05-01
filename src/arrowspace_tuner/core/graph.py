@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Protocol, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Protocol
 
 import numpy as np
 import scipy.sparse as sp
@@ -20,11 +21,11 @@ class PyGraphLaplacian(Protocol):
     the Rust wheel may not be present in the type-checking environment.
     """
 
-    def to_csr(self) -> Tuple[Sequence[float], Sequence[int], Sequence[int]]:
+    def to_csr(self) -> tuple[Sequence[float], Sequence[int], Sequence[int]]:
         """Return (data, indices, indptr) arrays for CSR construction."""
         ...
 
-    def shape(self) -> Tuple[int, int]:
+    def shape(self) -> tuple[int, int]:
         """Return (nrows, ncols) of the Laplacian matrix."""
         ...
 
