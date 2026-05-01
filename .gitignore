@@ -20,3 +20,7 @@ results/*
 
 # Local data
 data/
+
+.ruff_cache/
+.mypy_cache/
+ruff_errors.txt
