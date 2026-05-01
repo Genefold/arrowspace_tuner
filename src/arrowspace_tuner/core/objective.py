@@ -33,11 +33,11 @@ import logging
 import threading
 
 import numpy as np
-import scipy.sparse as sp
 import optuna
+import scipy.sparse as sp
 
 from .config import BuildParams, StudyConfig
-from .graph import fiedler_normalized, fiedler_normalized_from_csr
+from .graph import fiedler_normalized_from_csr
 
 logger = logging.getLogger(__name__)
 

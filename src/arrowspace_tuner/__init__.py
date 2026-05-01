@@ -21,10 +21,10 @@ Quickstart
     tuner.save_report()         # requires pip install arrowspace-tuner[report]
 """
 from .api import optuna
-from .tuner import EpsTuner
 
 # Power-user exports: config dataclasses for advanced customisation
 from .core import BuildParams, StudyConfig
+from .tuner import EpsTuner
 
 __version__ = "0.1.0"
 

@@ -6,11 +6,9 @@ They require the arrowspace Rust wheel to be installed.
 """
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
-from arrowspace_tuner import BuildParams, EpsTuner, StudyConfig, optuna
-
+from arrowspace_tuner import EpsTuner, optuna
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 

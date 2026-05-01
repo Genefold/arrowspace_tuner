@@ -9,7 +9,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ── constants ─────────────────────────────────────────────────────────────────
 
 N_SMALL  = 120    # fast: enough for a non-degenerate graph

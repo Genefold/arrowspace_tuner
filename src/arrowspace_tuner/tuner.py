@@ -279,7 +279,7 @@ class EpsTuner:
 
         return self._final_build(embeddings)
 
-    def save_report(self, out_dir: str = "results") -> "Path":  # noqa: F821
+    def save_report(self, out_dir: str = "results") -> Path:  # noqa: F821
         """
         Save trial CSV, best_params.json, and HTML plots to disk.
 

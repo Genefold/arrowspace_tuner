@@ -6,18 +6,14 @@ They require the arrowspace Rust wheel to be installed.
 """
 from __future__ import annotations
 
-import numpy as np
 import optuna
-import pytest
 
 from arrowspace_tuner.core import (
     BuildParams,
-    StudyConfig,
     build_and_score,
     fiedler_normalized,
     make_objective,
 )
-
 
 # ── BuildParams.to_dict ─────────────────────────────────────────────────────────
 
@@ -99,7 +95,6 @@ class TestBuildAndScore:
 class TestFiedlerNormalized:
 
     def test_returns_float(self, embeddings_small):
-        from arrowspace import ArrowSpaceBuilder
         params = BuildParams(eps=1.5, k=8, topk=4)
         _, _, _, gl = build_and_score(embeddings_small, params)
         if gl is not None:
