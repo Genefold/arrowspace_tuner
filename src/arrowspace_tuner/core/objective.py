@@ -63,7 +63,7 @@ class ArrowSpaceProtocol(Protocol):
     def search_batch(
         self,
         queries: np.ndarray,
-        gl: PyGraphLaplacian,
+        gl: PyGraphLaplacian ,
         tau: float,
     ) -> Sequence[Sequence[tuple[int, float]]]:
         """Run a batch of queries against the index."""
@@ -300,7 +300,7 @@ def make_objective(
         )
 
         # ── 5. k-NN retrieval via search_batch ────────────────────────────────
-        if aspace is None:
+        if aspace is None or gl is None:
             raise optuna.TrialPruned()
         try:
             batch_results = aspace.search_batch(probe_embs, gl, tau)
