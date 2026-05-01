@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Protocol, Sequence, Tuple
 
 import numpy as np
 import scipy.sparse as sp
@@ -9,7 +10,26 @@ import scipy.sparse.linalg as spla
 logger = logging.getLogger(__name__)
 
 
-def gl_to_scipy(gl: object) -> sp.csr_matrix:
+class PyGraphLaplacian(Protocol):
+    """
+    Structural protocol matching the PyGraphLaplacian type exposed by the
+    ArrowSpace Rust extension (arrowspace._arrowspace.PyGraphLaplacian).
+
+    Declaring it here as a Protocol lets mypy check call-sites without
+    importing the extension at type-check time, which is correct because
+    the Rust wheel may not be present in the type-checking environment.
+    """
+
+    def to_csr(self) -> Tuple[Sequence[float], Sequence[int], Sequence[int]]:
+        """Return (data, indices, indptr) arrays for CSR construction."""
+        ...
+
+    def shape(self) -> Tuple[int, int]:
+        """Return (nrows, ncols) of the Laplacian matrix."""
+        ...
+
+
+def gl_to_scipy(gl: PyGraphLaplacian) -> sp.csr_matrix:
     """
     Convert a PyGraphLaplacian (from the ArrowSpace Rust extension) to a
     SciPy CSR sparse matrix.
@@ -110,7 +130,7 @@ def fiedler_normalized_from_csr(L: sp.csr_matrix, nnz: int) -> float:
         return 0.0
 
 
-def fiedler_normalized(gl: object) -> float:
+def fiedler_normalized(gl: PyGraphLaplacian) -> float:
     """
     Public wrapper: compute the normalised Fiedler value from a raw
     PyGraphLaplacian. Calls gl.to_csr() once internally.

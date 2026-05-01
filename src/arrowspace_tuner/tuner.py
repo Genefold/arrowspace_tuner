@@ -17,7 +17,8 @@ Typical usage:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
 import numpy as np
 import optuna
@@ -75,7 +76,7 @@ class EpsTuner:
 
         Threading safety: each trial runs in a separate thread sharing
         the same process. The objective closure is stateless, but
-        ArrowSpace’s .build() must be thread-safe. If you observe crashes
+        ArrowSpace's .build() must be thread-safe. If you observe crashes
         or corrupted results with n_jobs > 1, fall back to n_jobs=1.
 
         Reproducibility: with n_jobs > 1 the trial execution order is
@@ -103,7 +104,7 @@ class EpsTuner:
         *,
         n_trials:   int          = _DEFAULT_N_TRIALS,
         sample_n:   int | None   = None,
-        seed:       int          = 42,
+        seed:       int          = 54,
         study_name: str          = "arrowspace_tuner",
         storage:    str | None   = None,
         eps_low:    float        = 0.3,
@@ -111,7 +112,7 @@ class EpsTuner:
         k_low:      int          = 3,
         k_high:     int          = 40,
         tau_low:    float        = 0.1,
-        tau_high:   float        = 2.0,
+        tau_high:   float        = 1.0,
         n_probe:    int          = 50,
         n_jobs:     int          = 1,
     ) -> None:
@@ -237,7 +238,8 @@ class EpsTuner:
             )
 
         # ── run optimisation ────────────────────────────────────────────────────
-        objective, best_cache = make_objective(embeddings, cfg)
+        objective_fn, best_cache = make_objective(embeddings, cfg)
+        objective: Callable[[optuna.Trial], float] = objective_fn  # type: ignore[assignment]
         study.optimize(objective, n_trials=cfg.n_trials, n_jobs=cfg.n_jobs)
 
         # ── guard: all trials pruned ───────────────────────────────────────────
@@ -270,7 +272,7 @@ class EpsTuner:
 
         # ── final build: use cached objects if available (#9) ──────────────────
         # When sample_n=None every trial built on the full corpus, so the
-        # best trial’s aspace+gl are already correct. Skip _final_build.
+        # best trial's aspace+gl are already correct. Skip _final_build.
         if best_cache:
             logger.info(
                 "Returning cached best-trial objects (skipping redundant build)"
@@ -279,7 +281,7 @@ class EpsTuner:
 
         return self._final_build(embeddings)
 
-    def save_report(self, out_dir: str = "results") -> Path:  # noqa: F821
+    def save_report(self, out_dir: str = "results") -> Path:
         """
         Save trial CSV, best_params.json, and HTML plots to disk.
 
@@ -338,6 +340,8 @@ class EpsTuner:
         case the trial objects were built on a subset, not the full corpus.
         """
         from arrowspace import ArrowSpaceBuilder
+
+        assert self.best_params is not None, "best_params must be set before _final_build"
 
         params = BuildParams(
             eps  = self.best_params["eps"],

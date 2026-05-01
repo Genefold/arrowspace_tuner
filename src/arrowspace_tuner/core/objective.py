@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import logging
 import threading
+from typing import Any, Protocol, Sequence, Tuple
 
 import numpy as np
 import optuna
 import scipy.sparse as sp
 
 from .config import BuildParams, StudyConfig
-from .graph import fiedler_normalized_from_csr
+from .graph import PyGraphLaplacian, fiedler_normalized_from_csr
 
 logger = logging.getLogger(__name__)
 
@@ -49,13 +50,36 @@ W_VAR  = 0.10
 K_EVAL = 10   # top-k cutoff for MRR-Top0
 
 
+class ArrowSpaceProtocol(Protocol):
+    """
+    Structural protocol for the ArrowSpace object returned by
+    ArrowSpaceBuilder.build() (Rust FFI type).
+
+    Only the methods used inside this module are declared so that mypy
+    can type-check call-sites without importing the extension wheel.
+    """
+
+    def search_batch(
+        self,
+        queries: Any,
+        gl: Any,
+        tau: float,
+    ) -> Sequence[Sequence[Tuple[int, float]]]:
+        """Run a batch of queries against the index."""
+        ...
+
+    def lambdas(self) -> Sequence[float]:
+        """Return taumode λ values for all indexed items."""
+        ...
+
+
 # ── graph build + spectral diagnostics ───────────────────────────────────────
 
 def build_and_score(
     embeddings: np.ndarray,
     params:     BuildParams,
     trial:      optuna.Trial | None = None,
-) -> tuple[float, float, object, object]:
+) -> tuple[float, float, ArrowSpaceProtocol | None, PyGraphLaplacian | None]:
     """
     Build an ArrowSpace graph and compute spectral diagnostics.
 
@@ -75,16 +99,18 @@ def build_and_score(
         Normalised Fiedler value λ₂ — algebraic connectivity.
     var_lambda : float
         Variance of ArrowSpace taumode λ values — spectral richness.
-    aspace : ArrowSpace | None
+    aspace : ArrowSpaceProtocol | None
         Live ArrowSpace object, needed for search_batch downstream.
         None on degenerate graphs.
-    gl : GraphLaplacian | None
+    gl : PyGraphLaplacian | None
         Live GraphLaplacian object. None on degenerate graphs.
     """
     from arrowspace import ArrowSpaceBuilder
 
     # ── build graph ───────────────────────────────────────────────────────────
     try:
+        aspace: ArrowSpaceProtocol
+        gl: PyGraphLaplacian
         aspace, gl = (
             ArrowSpaceBuilder()
             .with_dims_reduction(enabled=False, eps=None)
@@ -175,7 +201,7 @@ def build_and_score(
 def make_objective(
     embeddings: np.ndarray,
     cfg:        StudyConfig,
-) -> tuple[object, dict]:
+) -> tuple[object, dict[str, Any]]:
     """
     Return ``(objective_fn, best_cache)`` closed over embeddings and cfg.
 
@@ -232,7 +258,7 @@ def make_objective(
     # ── best-trial cache (#9) ───────────────────────────────────────────────
     # Only populated when using the full corpus (not a subsample), because
     # subsample-built objects cannot be returned as the final (aspace, gl).
-    best_cache: dict = {}   # keys: "aspace", "gl", "score" when populated
+    best_cache: dict[str, Any] = {}   # keys: "aspace", "gl", "score" when populated
     _cache_lock = threading.Lock()  # protect concurrent updates (n_jobs > 1)
 
     def objective(trial: optuna.Trial) -> float:
@@ -273,6 +299,8 @@ def make_objective(
         )
 
         # ── 5. k-NN retrieval via search_batch ────────────────────────────────
+        if aspace is None:
+            raise optuna.TrialPruned()
         try:
             batch_results = aspace.search_batch(probe_embs, gl, tau)
         except Exception as exc:

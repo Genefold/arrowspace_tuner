@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 # Single source of truth for the default number of trials.
 # Referenced by StudyConfig, EpsTuner.__init__, and api.optuna().
@@ -43,7 +44,7 @@ class BuildParams:
     cluster_radius: float        = 0.42
     sampling_rate:  float        = 1.0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Return graph_params dict expected by ArrowSpaceBuilder.build()."""
         return {
             "eps":   self.eps,

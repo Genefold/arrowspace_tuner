@@ -19,6 +19,7 @@ from pathlib import Path
 
 import numpy as np
 import optuna
+from optuna.trial import FrozenTrial
 
 logger = logging.getLogger(__name__)
 
@@ -151,16 +152,20 @@ def save_results(
 
 def _save_html(fig: object, path: Path) -> None:
     try:
-        fig.write_html(str(path))  # type: ignore[union-attr]
-        logger.info("Saved plot → %s", path)
+        from plotly.graph_objs import Figure
+        if isinstance(fig, Figure):
+            fig.write_html(str(path))
+            logger.info("Saved plot → %s", path)
+        else:
+            logger.warning("Cannot save %s: unexpected figure type %s", path.name, type(fig))
     except Exception as exc:
         logger.warning("Could not save %s: %s", path.name, exc)
 
 
 def _print_summary(
-    best:    optuna.Trial,
+    best:    FrozenTrial,
     run_dir: Path,
-    df:      pd.DataFrame,
+    df:      "pd.DataFrame",
 ) -> None:
     completed = df[df["state"] == "COMPLETE"]
     print("\n" + "=" * 60)
