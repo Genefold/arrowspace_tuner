@@ -40,8 +40,8 @@ class BuildParams:
     topk:           int          = 5
     p:              float        = 2.0
     sigma:          float | None = None
-    max_clusters:   int          = 5000
-    cluster_radius: float        = 0.42
+    max_clusters:   int | None   = None
+    cluster_radius: float | None = None
     sampling_rate:  float        = 1.0
 
     def to_dict(self) -> dict[str, Any]:
@@ -124,8 +124,8 @@ class StudyConfig:
     n_jobs:     int          = 1
 
     # Search space — graph
-    eps_low:  float = 0.3
-    eps_high: float = 4.0
+    eps_low:  float = 0.5
+    eps_high: float = 3.0
     k_low:    int   = 3
     k_high:   int   = 40
 

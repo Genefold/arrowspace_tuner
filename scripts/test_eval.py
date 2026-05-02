@@ -18,6 +18,7 @@ import logging
 import numpy as np
 
 from arrowspace_tuner.tuner import EpsTuner
+import time 
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,14 +45,14 @@ def load_npy(path: str, n: int, seed: int) -> np.ndarray:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data",   default="data/cve_embs/cve1999-2025.npy")
-    parser.add_argument("--n",      type=int, default=5000)
-    parser.add_argument("--trials", type=int, default=20)
+    parser.add_argument("--n",      type=int, default=50000)
+    parser.add_argument("--trials", type=int, default=15)
     parser.add_argument("--seed",   type=int, default=54)
 
     args = parser.parse_args()
 
     embeddings = load_npy(args.data, args.n, args.seed)
-
+    t0 = time.perf_counter()
     tuner = EpsTuner(
         n_trials   = args.trials,
         sample_n   = None,          # already subsampled above
@@ -63,7 +64,8 @@ def main() -> None:
     log.info("Starting | n=%d  trials=%d  seed=%d", len(embeddings), args.trials, args.seed)
 
     aspace, gl = tuner.fit(embeddings)
-
+    t1 = time.perf_counter()
+    print(f'rubn time: {t1-t0:.2f} seconds')
     print("\n=== Best result ===")
     print(f"  F**        : {tuner.best_score:.8f}")
     print(f"  eps        : {tuner.best_params['eps']:.5f}")
