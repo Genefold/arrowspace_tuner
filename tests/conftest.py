@@ -62,7 +62,7 @@ def embeddings_medium(rng: np.random.Generator) -> np.ndarray:
 
 
 @pytest.fixture(scope="session")
-def embeddings_flat(rng: np.random.Generator) -> np.ndarray:
+def embeddings_flat() -> np.ndarray:
     """
     80 × 64 float64 embeddings drawn from a single tight Gaussian near origin.
 
@@ -73,7 +73,14 @@ def embeddings_flat(rng: np.random.Generator) -> np.ndarray:
     the unit sphere, destroying the "flat" property entirely. The * 0.01
     scale is what makes all vectors nearly identical and thus produces a
     degenerate graph when eps is small.
+
+    Uses an isolated RNG (seed=999) that is NOT shared with the other
+    embedding fixtures. This guarantees the fixture content is identical
+    regardless of test collection order, preventing the flaky behaviour
+    that appeared when sharing the global `rng` fixture caused different
+    RNG states depending on which fixtures were initialised first.
     """
+    rng = np.random.default_rng(999)
     return rng.standard_normal((80, D)).astype(np.float64) * 0.01
 
 
@@ -89,7 +96,7 @@ def embeddings_1d(rng: np.random.Generator) -> np.ndarray:
     return rng.standard_normal(D).astype(np.float64)
 
 
-# ── StudyConfig fixture ───────────────────────────────────────────────────────
+# ── StudyConfig fixtures ──────────────────────────────────────────────────────
 
 @pytest.fixture
 def fast_study_config() -> StudyConfig:  # type: ignore[name-defined]  # noqa: F821
@@ -107,6 +114,33 @@ def fast_study_config() -> StudyConfig:  # type: ignore[name-defined]  # noqa: F
         study_name = "test_study",
         eps_low    = 0.5,
         eps_high   = 2.0,
+        k_low      = 3,
+        k_high     = 10,
+        tau_low    = 0.3,
+        tau_high   = 1.2,
+        n_probe    = 20,
+    )
+
+
+@pytest.fixture
+def flat_study_config() -> StudyConfig:  # type: ignore[name-defined]  # noqa: F821
+    """
+    StudyConfig for the flat/degenerate embedding tests.
+
+    eps bounds are set relative to the data scale of embeddings_flat
+    (vectors scaled by 0.01 → pairwise distances ~ 0.014).
+    eps_high=0.05 is large enough to explore but small enough that
+    arrowspace cannot form a fully-connected graph, ensuring every
+    trial is either pruned or returns a zero score.
+    """
+    from arrowspace_tuner import StudyConfig
+    return StudyConfig(
+        n_trials   = 3,
+        sample_n   = None,
+        seed       = SEED,
+        study_name = "test_study_flat",
+        eps_low    = 0.001,
+        eps_high   = 0.05,
         k_low      = 3,
         k_high     = 10,
         tau_low    = 0.3,

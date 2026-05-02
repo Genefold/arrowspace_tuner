@@ -217,15 +217,24 @@ class TestMakeObjective:
         assert cache == {}
 
     def test_flat_embeddings_all_pruned_or_zero(
-        self, embeddings_flat: np.ndarray, fast_study_config: StudyConfig  # type: ignore[name-defined]  # noqa: F821
+        self, embeddings_flat: np.ndarray, flat_study_config: StudyConfig  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
+        """
+        On near-identical embeddings with eps bounds below the data scale,
+        every trial must be either pruned or return a zero score.
+
+        Uses flat_study_config (eps_high=0.05) instead of fast_study_config
+        (eps_high=2.0) so that arrowspace cannot form a connected graph on
+        the 0.01-scaled vectors, keeping the test deterministic regardless
+        of test collection order.
+        """
         study      = optuna.create_study(direction="maximize")
-        obj, _     = make_objective(embeddings_flat, fast_study_config)
-        study.optimize(obj, n_trials=fast_study_config.n_trials)
+        obj, _     = make_objective(embeddings_flat, flat_study_config)
+        study.optimize(obj, n_trials=flat_study_config.n_trials)
 
         for t in study.trials:
-            is_pruned   = t.state == optuna.trial.TrialState.PRUNED
-            is_zero     = t.value == 0.0 if t.value is not None else True
+            is_pruned = t.state == optuna.trial.TrialState.PRUNED
+            is_zero   = t.value == 0.0 if t.value is not None else True
             assert is_pruned or is_zero, (
                 f"Expected pruned or zero score on flat embeddings, "
                 f"got state={t.state} value={t.value}"
