@@ -108,25 +108,32 @@ def build_and_score(
     """
     from arrowspace import ArrowSpaceBuilder
 
-    # ── build graph ───────────────────────────────────────────────────────────
+# ── build graph ───────────────────────────────────────────────────────────
     try:
         aspace: ArrowSpaceProtocol
         gl: PyGraphLaplacian
-        aspace, gl = (
+
+        builder = (
             ArrowSpaceBuilder()
             .with_dims_reduction(enabled=False, eps=None)
             .with_sampling("simple", params.sampling_rate)
-            .with_cluster_max_clusters(params.max_clusters)
-            .with_cluster_radius(params.cluster_radius)
-            .build(params.to_dict(), embeddings)
         )
+
+        if params.max_clusters is not None:
+            builder = builder.with_cluster_max_clusters(params.max_clusters)
+
+        if params.cluster_radius is not None:
+            builder = builder.with_cluster_radius(params.cluster_radius)
+
+        aspace, gl = builder.build(params.to_dict(), embeddings)
+
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException as exc:
         logger.warning(
-            "ArrowSpace .build() failed (eps=%.4f k=%d): %s — pruning",
-            params.eps, params.k, exc,
-        )
+        "ArrowSpace .build() failed (eps=%.4f k=%d): %s — pruning",
+        params.eps, params.k, exc,
+    )
         if trial:
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
@@ -172,6 +179,7 @@ def build_and_score(
         if trial:
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
+    
 
     # ── pruner checkpoint 0: after Fiedler ─────────────────────────────────────
     if trial is not None:

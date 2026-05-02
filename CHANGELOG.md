@@ -6,6 +6,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.2.1] — 2026-05-02
+
+### Changed
+- `EpsTuner` configuration defaults — set `.max_clusters` and `.min_clusters` (or similar clustering bounds) to `None`. This delegates cluster sizing entirely to `arrowspace`'s internal heuristics, allowing it to determine the optimal number of clusters dynamically during the search rather than being constrained by the tuner.
+
+---
+
 ## [0.2.0] — 2026-04-29
 
 ### Added
