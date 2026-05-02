@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 # Single source of truth for the default number of trials.
 # Referenced by StudyConfig, EpsTuner.__init__, and api.optuna().
 _DEFAULT_N_TRIALS: int = 15
+
+# Fixed tau used by search_batch inside the objective.
+# Not optimised — see rationale in objective.py.
+DEFAULT_SEARCH_TAU: float = 0.5
 
 
 @dataclass
@@ -98,13 +102,19 @@ class StudyConfig:
     k_low, k_high : int
         Bounds for k (nearest neighbours) search.
 
-    Search space — retrieval
-    ------------------------
-    tau_low, tau_high : float
-        Bounds for tau search. tau controls the ArrowSpace search
-        temperature passed to search_batch(). Optimising tau alongside
-        eps and k ensures the graph is evaluated at its best retrieval
-        operating point, not an arbitrary fixed tau.
+    Search tau (fixed, not optimised)
+    ----------------------------------
+    search_tau : float
+        The tau value passed to search_batch() inside every trial.
+        This is NOT optimised by Optuna. Optimising tau alongside eps/k
+        creates a circular reward: low tau makes search_batch behave like
+        pure cosine retrieval, which happens to score highest under the
+        spectral MRR proxy. The result is tau collapsing to its lower
+        bound regardless of corpus geometry.
+
+        Users who want to tune search_tau for their workload should do so
+        separately, after the graph structure (eps, k) has been determined.
+        Default: 0.5 (balanced spectral + cosine blend).
 
     MRR proxy
     ---------
@@ -129,11 +139,10 @@ class StudyConfig:
     k_low:    int   = 3
     k_high:   int   = 40
 
-    # Search space — retrieval
-    tau_low:  float = 0.1
-    tau_high: float = 1.0
+    # Fixed search tau — not part of the Optuna search space
+    search_tau: float = DEFAULT_SEARCH_TAU
 
-    # MRR proxy — 50 gives ~14% s.e., adequate for trial ranking (was 200)
+    # MRR proxy — 50 gives ~14% s.e., adequate for trial ranking
     n_probe:  int   = 50
     max_clusters:   int   = 50
     cluster_radius: float = 0.5

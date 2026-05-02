@@ -14,7 +14,17 @@ Objective (maximise):
           + W_FIED * log1p(fiedler)      # connectivity health
           + W_VAR  * log1p(var_lambda)   # spectral richness
 
-Hyperparameters optimised by Optuna: eps, k, tau
+Hyperparameters optimised by Optuna: eps, k
+
+Search tau is fixed (not optimised). Rationale:
+    Optimising tau alongside eps/k creates a circular reward. Low tau
+    makes search_batch behave like pure cosine retrieval, which scores
+    highest under the spectral MRR proxy because the proxy itself measures
+    spectral proximity of results. The optimiser collapses tau to its lower
+    bound regardless of corpus geometry, defeating the spectral+cosine blend
+    that is the purpose of ArrowSpace.
+    search_tau is therefore fixed to DEFAULT_SEARCH_TAU (0.5) and can be
+    tuned independently by the user after graph structure is determined.
 
 Pruning checkpoints (MedianPruner in tuner.py):
     step=0  after Fiedler   — cheap proxy for connectivity
@@ -63,7 +73,7 @@ class ArrowSpaceProtocol(Protocol):
     def search_batch(
         self,
         queries: np.ndarray,
-        gl: PyGraphLaplacian ,
+        gl: PyGraphLaplacian,
         tau: float,
     ) -> Sequence[Sequence[tuple[int, float]]]:
         """Run a batch of queries against the index."""
@@ -179,7 +189,6 @@ def build_and_score(
         if trial:
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
-    
 
     # ── pruner checkpoint 0: after Fiedler ─────────────────────────────────────
     if trial is not None:
@@ -215,7 +224,8 @@ def make_objective(
     Return ``(objective_fn, best_cache)`` closed over embeddings and cfg.
 
     ``objective_fn`` is passed directly to ``study.optimize()``.
-    It searches over eps, k, and tau simultaneously.
+    It searches over eps and k only. search_tau is fixed to cfg.search_tau
+    and passed directly to search_batch — it is not an Optuna parameter.
 
     ``best_cache`` is a dict updated in-place whenever a trial beats the
     current best score::
@@ -264,21 +274,21 @@ def make_objective(
         n_fixed, size=min(cfg.n_probe, n_fixed), replace=False
     )
 
+    # ── fixed search tau (not optimised) ─────────────────────────────────────
+    search_tau = cfg.search_tau
+
     # ── best-trial cache (#9) ───────────────────────────────────────────────
-    # Only populated when using the full corpus (not a subsample), because
-    # subsample-built objects cannot be returned as the final (aspace, gl).
-    best_cache: dict[str, Any] = {}   # keys: "aspace", "gl", "score" when populated
-    _cache_lock = threading.Lock()  # protect concurrent updates (n_jobs > 1)
+    best_cache: dict[str, Any] = {}
+    _cache_lock = threading.Lock()
 
     def objective(trial: optuna.Trial) -> float:
 
         # ── 1. fixed corpus slice ─────────────────────────────────────────────
         emb_trial = emb_fixed
 
-        # ── 2. suggest hyperparameters ────────────────────────────────────────
+        # ── 2. suggest hyperparameters (eps and k only) ───────────────────────
         k   = trial.suggest_int(  "k",   cfg.k_low,   cfg.k_high)
         eps = trial.suggest_float("eps", cfg.eps_low,  cfg.eps_high, log=True)
-        tau = trial.suggest_float("tau", cfg.tau_low,  cfg.tau_high)
 
         params = BuildParams(
             eps=eps,
@@ -307,15 +317,15 @@ def make_objective(
             emb_trial[probe_idx], dtype=np.float64
         )
 
-        # ── 5. k-NN retrieval via search_batch ────────────────────────────────
+        # ── 5. k-NN retrieval via search_batch (fixed search_tau) ─────────────
         if aspace is None or gl is None:
             raise optuna.TrialPruned()
         try:
-            batch_results = aspace.search_batch(probe_embs, gl, tau)
+            batch_results = aspace.search_batch(probe_embs, gl, search_tau)
         except Exception as exc:
             logger.warning(
-                "Trial %d search_batch failed (eps=%.4f k=%d tau=%.3f): %s",
-                trial.number, params.eps, params.k, tau, exc,
+                "Trial %d search_batch failed (eps=%.4f k=%d search_tau=%.3f): %s",
+                trial.number, params.eps, params.k, search_tau, exc,
             )
             raise optuna.TrialPruned()
 
@@ -360,17 +370,17 @@ def make_objective(
                     best_cache["score"]  = score
 
         # ── 10. log trial attributes ──────────────────────────────────────────
-        trial.set_user_attr("fiedler",    round(fiedler,    8))
-        trial.set_user_attr("var_lambda", round(var_lambda, 8))
-        trial.set_user_attr("mrr_proxy",  round(mrr_proxy,  6))
-        trial.set_user_attr("tau",        round(tau,        6))
-        trial.set_user_attr("n_sample",   len(emb_trial))
-        trial.set_user_attr("n_probe",    len(probe_idx))
+        trial.set_user_attr("fiedler",     round(fiedler,     8))
+        trial.set_user_attr("var_lambda",  round(var_lambda,  8))
+        trial.set_user_attr("mrr_proxy",   round(mrr_proxy,   6))
+        trial.set_user_attr("search_tau",  round(search_tau,  6))
+        trial.set_user_attr("n_sample",    len(emb_trial))
+        trial.set_user_attr("n_probe",     len(probe_idx))
 
         logger.info(
-            "Trial %03d | eps=%.5f k=%2d topk=%2d tau=%.3f | "
+            "Trial %03d | eps=%.5f k=%2d topk=%2d search_tau=%.3f | "
             "fiedler=%.4f var=%.4f mrr=%.4f → score=%.6f",
-            trial.number, params.eps, params.k, params.topk, tau,
+            trial.number, params.eps, params.k, params.topk, search_tau,
             fiedler, var_lambda, mrr_proxy, score,
         )
         return score

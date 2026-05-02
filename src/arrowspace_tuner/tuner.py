@@ -8,11 +8,14 @@ Typical usage:
     aspace, gl = tuner.fit(embeddings)
 
     # inspect results
-    print(tuner.best_params)   # {"eps": 1.2, "k": 14, "tau": 0.8}
+    print(tuner.best_params)   # {"eps": 1.2, "k": 14}
     print(tuner.best_score)
 
     # optional: save full report (requires [report] extra)
     tuner.save_report(out_dir="results")
+
+    # use the recommended search_tau when calling search
+    results = aspace.search(query_embedding, gl, tau=tuner.search_tau)
 """
 from __future__ import annotations
 
@@ -25,12 +28,10 @@ import numpy as np
 import optuna
 
 from .core import BuildParams, StudyConfig, make_objective
-from .core.config import _DEFAULT_N_TRIALS
+from .core.config import _DEFAULT_N_TRIALS, DEFAULT_SEARCH_TAU
 
 logger = logging.getLogger(__name__)
 
-# Silence Optuna's verbose output by default.
-# Users can re-enable with: optuna.logging.set_verbosity(optuna.logging.INFO)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 
@@ -38,14 +39,19 @@ class EpsTuner:
     """
     Hyperparameter discovery for ArrowSpace via Optuna.
 
-    Searches over eps, k, and tau simultaneously using the spectral
-    MRR-Top0 proxy as the objective (query-free, label-agnostic).
+    Searches over eps and k using the spectral MRR-Top0 proxy as the
+    objective (query-free, label-agnostic).
+
+    tau is NOT optimised. It is a search-time parameter controlling the
+    spectral/cosine blend in search_batch(). Optimising it alongside
+    eps/k creates a circular reward (see objective.py for details).
+    Use the ``search_tau`` parameter to set it; the same value is stored
+    on ``tuner.search_tau`` for convenience after fit().
 
     Parameters
     ----------
     n_trials : int
-        Number of Optuna trials. Default 15. More trials = better coverage
-        of the search space at the cost of runtime.
+        Number of Optuna trials. Default 15.
     sample_n : int | None
         Subsample this many embeddings per trial for speed. None = full
         corpus every trial. Recommended 5_000 for corpora > 50k items
@@ -61,33 +67,19 @@ class EpsTuner:
         Log-scale search bounds for eps.
     k_low, k_high : int
         Search bounds for k (number of nearest neighbours).
-    tau_low, tau_high : float
-        Search bounds for tau (ArrowSpace search temperature).
+    search_tau : float
+        Fixed tau passed to search_batch() inside every trial.
+        Not optimised — see class docstring. Default: 0.5.
     n_probe : int
         Number of anchor queries per trial for the MRR proxy.
-        Scales search_batch cost linearly; 50 is the default (~ 14% s.e.).
+        Scales search_batch cost linearly; 50 is the default (~14% s.e.).
     n_jobs : int
         Number of parallel workers. Default 1 (serial, fully reproducible).
-
-        Set to -1 to use all available CPU cores for a ~N× speedup where
-        N = min(n_trials, cpu_count). Typical production usage::
-
-            EpsTuner(n_trials=30, n_jobs=-1)   # parallel, fast
-            EpsTuner(n_trials=15, n_jobs=1)    # serial, reproducible
-
-        Threading safety: each trial runs in a separate thread sharing
-        the same process. The objective closure is stateless, but
-        ArrowSpace's .build() must be thread-safe. If you observe crashes
-        or corrupted results with n_jobs > 1, fall back to n_jobs=1.
-
-        Reproducibility: with n_jobs > 1 the trial execution order is
-        non-deterministic even with a fixed seed, so best_params may vary
-        between runs. Use n_jobs=1 for exact reproducibility.
 
     Attributes (available after .fit())
     ------------------------------------
     best_params : dict[str, Any]
-        Best hyperparameters found: {"eps": float, "k": int, "tau": float}.
+        Best hyperparameters found: {"eps": float, "k": int}.
     best_score : float
         Best composite objective score achieved.
     best_fiedler : float
@@ -96,6 +88,8 @@ class EpsTuner:
         Lambda variance at the best trial (spectral richness).
     best_mrr_proxy : float
         MRR proxy at the best trial (retrieval coherence).
+    search_tau : float
+        The tau value used during the study — pass this to aspace.search().
     study : optuna.Study
         The raw Optuna study object for custom analysis.
     """
@@ -112,8 +106,7 @@ class EpsTuner:
         eps_high:   float        = 4.0,
         k_low:      int          = 3,
         k_high:     int          = 40,
-        tau_low:    float        = 0.1,
-        tau_high:   float        = 1.0,
+        search_tau: float        = DEFAULT_SEARCH_TAU,
         n_probe:    int          = 50,
         n_jobs:     int          = 1,
     ) -> None:
@@ -127,11 +120,11 @@ class EpsTuner:
             eps_high   = eps_high,
             k_low      = k_low,
             k_high     = k_high,
-            tau_low    = tau_low,
-            tau_high   = tau_high,
+            search_tau = search_tau,
             n_probe    = n_probe,
             n_jobs     = n_jobs,
         )
+        self.search_tau: float = search_tau
 
         # Results — populated by .fit()
         self.best_params:     dict[str, Any] | None = None
@@ -153,8 +146,7 @@ class EpsTuner:
         Parameters
         ----------
         embeddings : np.ndarray
-            Shape (N, D) float64 corpus embeddings. N should be at least
-            a few hundred for meaningful spectral analysis.
+            Shape (N, D) float64 corpus embeddings.
 
         Returns
         -------
@@ -168,23 +160,16 @@ class EpsTuner:
         ValueError
             If embeddings are not a 2D array.
         RuntimeError
-            If all trials were pruned (corpus too small or search bounds
-            too narrow — try widening eps_low/eps_high).
+            If all trials were pruned.
         """
         embeddings = self._validate(embeddings)
 
         cfg = self._cfg
         logger.info(
-            "Starting EpsTuner: n_trials=%d  sample_n=%s  seed=%d  n_jobs=%d",
-            cfg.n_trials, cfg.sample_n, cfg.seed, cfg.n_jobs,
+            "Starting EpsTuner: n_trials=%d  sample_n=%s  seed=%d  n_jobs=%d  search_tau=%.3f",
+            cfg.n_trials, cfg.sample_n, cfg.seed, cfg.n_jobs, cfg.search_tau,
         )
 
-        # ── sampler: GPSampler → TPE multivariate fallback (#4) ─────────────────
-        # GPSampler (Gaussian Process / BoTorch) is the best choice for
-        # small trial budgets (≤30) on a low-dimensional continuous space.
-        # It requires optuna[botorch]; if that is not installed we fall back
-        # to TPESampler with multivariate=True and a reduced n_startup_trials
-        # so the tree model gets as many informed trials as possible.
         try:
             from optuna.samplers import GPSampler
             sampler: optuna.samplers.BaseSampler = GPSampler(
@@ -195,8 +180,8 @@ class EpsTuner:
         except ImportError:
             sampler = optuna.samplers.TPESampler(
                 seed             = cfg.seed,
-                n_startup_trials = 4,       # default 10 → 4: more informed trials
-                multivariate     = True,    # joint posterior over (eps, k, tau)
+                n_startup_trials = 4,
+                multivariate     = True,
                 group            = True,
             )
             logger.info(
@@ -204,13 +189,11 @@ class EpsTuner:
                 "[install optuna[botorch] for GPSampler]"
             )
 
-        # ── pruner ──────────────────────────────────────────────────────────────
         pruner = optuna.pruners.MedianPruner(
             n_startup_trials = 4,
             n_warmup_steps   = 0,
         )
 
-        # ── create study ─────────────────────────────────────────────────────────
         study = optuna.create_study(
             direction      = "maximize",
             study_name     = cfg.study_name,
@@ -220,10 +203,6 @@ class EpsTuner:
             load_if_exists = cfg.storage is not None,
         )
 
-        # ── warm-start: enqueue one known-good anchor trial (#4) ───────────────
-        # Gives the surrogate a reasonable starting point so trial 0 is
-        # never wasted on an arbitrary corner of the search space.
-        # Only enqueue when starting fresh (not resuming from storage).
         completed_so_far = [
             t for t in study.trials
             if t.state == optuna.trial.TrialState.COMPLETE
@@ -231,19 +210,16 @@ class EpsTuner:
         if not completed_so_far:
             study.enqueue_trial(
                 {
-                    "eps": max(cfg.eps_low,  min(cfg.eps_high,  1.0)),
-                    "k":   max(cfg.k_low,    min(cfg.k_high,    15)),
-                    "tau": max(cfg.tau_low,  min(cfg.tau_high,  0.5)),
+                    "eps": max(cfg.eps_low, min(cfg.eps_high, 1.0)),
+                    "k":   max(cfg.k_low,   min(cfg.k_high,   15)),
                 },
                 skip_if_exists=True,
             )
 
-        # ── run optimisation ────────────────────────────────────────────────────
         objective_fn, best_cache = make_objective(embeddings, cfg)
         objective: Callable[[optuna.Trial], float] = objective_fn  # type: ignore[assignment]
         study.optimize(objective, n_trials=cfg.n_trials, n_jobs=cfg.n_jobs)
 
-        # ── guard: all trials pruned ───────────────────────────────────────────
         completed = [
             t for t in study.trials
             if t.state == optuna.trial.TrialState.COMPLETE
@@ -254,7 +230,6 @@ class EpsTuner:
                 "Try widening eps_low/eps_high or increasing sample_n."
             )
 
-        # ── store results ─────────────────────────────────────────────────────
         best             = study.best_trial
         self.study       = study
         self.best_params     = best.params
@@ -264,20 +239,14 @@ class EpsTuner:
         self.best_mrr_proxy  = best.user_attrs.get("mrr_proxy")
 
         logger.info(
-            "EpsTuner finished | best score=%.6f | eps=%.5f k=%d tau=%.3f",
+            "EpsTuner finished | best score=%.6f | eps=%.5f k=%d",
             self.best_score,
             self.best_params["eps"],
             self.best_params["k"],
-            self.best_params["tau"],
         )
 
-        # ── final build: use cached objects if available (#9) ──────────────────
-        # When sample_n=None every trial built on the full corpus, so the
-        # best trial's aspace+gl are already correct. Skip _final_build.
         if best_cache:
-            logger.info(
-                "Returning cached best-trial objects (skipping redundant build)"
-            )
+            logger.info("Returning cached best-trial objects (skipping redundant build)")
             return best_cache["aspace"], best_cache["gl"]
 
         return self._final_build(embeddings)
@@ -288,21 +257,6 @@ class EpsTuner:
 
         Requires the [report] extra:
             pip install arrowspace-tuner[report]
-
-        Parameters
-        ----------
-        out_dir : str
-            Root directory. Files land in out_dir/<study_name>/<timestamp>/.
-
-        Returns
-        -------
-        Path
-            The timestamped run directory where files were saved.
-
-        Raises
-        ------
-        RuntimeError
-            If called before .fit().
         """
         if self.study is None:
             raise RuntimeError("Call .fit() before .save_report().")
@@ -313,11 +267,6 @@ class EpsTuner:
     # ── private helpers ──────────────────────────────────────────────────────────
 
     def _validate(self, embeddings: np.ndarray) -> np.ndarray:
-        """
-        Validate and cast embeddings to float64.
-
-        Returns the (possibly cast) array so callers always work with float64.
-        """
         if not isinstance(embeddings, np.ndarray):
             raise ValueError(
                 f"embeddings must be np.ndarray, got {type(embeddings).__name__}"
@@ -336,9 +285,7 @@ class EpsTuner:
     def _final_build(self, embeddings: np.ndarray) -> tuple[object, object]:
         """
         Rebuild ArrowSpace once with the best params found by the study.
-        This is the (aspace, gl) pair returned to the user.
-        Only called when sample_n is set (subsample path), because in that
-        case the trial objects were built on a subset, not the full corpus.
+        Only called when sample_n is set (subsample path).
         """
         from arrowspace import ArrowSpaceBuilder
 
@@ -377,6 +324,6 @@ class EpsTuner:
             f"n_trials={self._cfg.n_trials}, "
             f"eps=[{self._cfg.eps_low}, {self._cfg.eps_high}], "
             f"k=[{self._cfg.k_low}, {self._cfg.k_high}], "
-            f"tau=[{self._cfg.tau_low}, {self._cfg.tau_high}], "
+            f"search_tau={self.search_tau}, "
             f"{status})"
         )

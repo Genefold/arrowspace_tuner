@@ -6,6 +6,36 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] — 2026-05-02
+
+### Changed
+- **tau removed from Optuna search space** — optimising tau alongside eps/k
+  created a circular reward: low tau makes `search_batch` behave like pure
+  cosine retrieval, which scores highest under the spectral MRR proxy. The
+  optimiser collapsed tau to its lower bound (≈ 0.11) regardless of corpus
+  geometry, nearly disabling the spectral component of ArrowSpace search.
+- `StudyConfig`: `tau_low` / `tau_high` fields replaced by `search_tau: float`
+  (default `0.5`). The fixed tau is passed to `search_batch` inside every
+  trial but is not a parameter Optuna can vary.
+- `EpsTuner.__init__`: `tau_low` / `tau_high` kwargs removed; `search_tau`
+  kwarg added (default `0.5`). `tuner.search_tau` attribute exposed so users
+  can pass it directly to `aspace.search()` after `fit()`.
+- `EpsTuner.best_params`: no longer contains `tau` (only `eps` and `k`).
+- `api.optuna()`: `tau_low` / `tau_high` params removed; `search_tau` added.
+- `__repr__`: updated to reflect new interface.
+- Warm-start anchor trial updated — `tau` key removed from enqueued params.
+- Log line updated — tau logged as `search_tau` (fixed constant, not trial value).
+- `user_attrs` in trial: `tau` key renamed to `search_tau` for clarity.
+- `DEFAULT_SEARCH_TAU = 0.5` constant added to `config.py` as single source
+  of truth for the default.
+
+### Migration
+If you were passing `tau_low` / `tau_high` to `EpsTuner` or `arrowspace_tuner.optuna()`,
+remove those arguments. If you relied on `tuner.best_params["tau"]`, use
+`tuner.search_tau` instead. Pass the same value to `aspace.search(gl, tau=tuner.search_tau)`.
+
+---
+
 ## [0.2.1] — 2026-05-02
 
 ### Changed
