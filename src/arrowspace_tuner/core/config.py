@@ -135,5 +135,5 @@ class StudyConfig:
 
     # MRR proxy — 50 gives ~14% s.e., adequate for trial ranking (was 200)
     n_probe:  int   = 100
-    max_clusters:   int   = None
-    cluster_radius: float = None
+    max_clusters:   int | None  = None
+    cluster_radius: float | None = None
