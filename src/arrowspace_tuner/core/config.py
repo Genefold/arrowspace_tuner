@@ -134,6 +134,6 @@ class StudyConfig:
     tau_high: float = 1.0
 
     # MRR proxy — 50 gives ~14% s.e., adequate for trial ranking (was 200)
-    n_probe:  int   = 50
-    max_clusters:   int   = 50
-    cluster_radius: float = 0.5
+    n_probe:  int   = 100
+    max_clusters:   int   = None
+    cluster_radius: float = None

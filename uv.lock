@@ -186,7 +186,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/74/85/5d6986012b6ac660e
 
 [[package]]
 name = "arrowspace-tuner"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "arrowspace" },
