@@ -352,14 +352,19 @@ class EpsTuner:
 
         embeddings = np.ascontiguousarray(embeddings, dtype=np.float64)
 
-        aspace, gl = (
+        builder = (
             ArrowSpaceBuilder()
             .with_dims_reduction(enabled=False, eps=None)
-            .with_cluster_max_clusters(self._cfg.max_clusters)
-            .with_cluster_radius(self._cfg.cluster_radius)
-            .build(params.to_dict(), embeddings)
         )
 
+        if self._cfg.max_clusters is not None:
+            builder = builder.with_cluster_max_clusters(self._cfg.max_clusters)
+
+        if self._cfg.cluster_radius is not None:
+            builder = builder.with_cluster_radius(self._cfg.cluster_radius)
+
+        aspace, gl = builder.build(params.to_dict(), embeddings)
+        
         logger.info(
             "Final build complete | eps=%.5f k=%d topk=%d",
             params.eps, params.k, params.topk,
