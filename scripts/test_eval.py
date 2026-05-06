@@ -59,7 +59,11 @@ def main() -> None:
         seed       = args.seed,
         study_name = "cve_arrowspace_fstar",
         storage    = None,
-    )
+        eps_high = 10.0,
+        eps_low  = 0.01,
+        tau_high= 0.5,
+        tau_low = 0.5, 
+                )
 
     log.info("Starting | n=%d  trials=%d  seed=%d", len(embeddings), args.trials, args.seed)
 

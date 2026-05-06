@@ -24,5 +24,6 @@ data/
 .ruff_cache/
 .mypy_cache/
 
+gpu/    
 
 experimetal_design.md
