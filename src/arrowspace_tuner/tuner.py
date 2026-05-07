@@ -392,9 +392,9 @@ class EpsTuner:
         params = data.get("params", {})
         eps = params.get("eps")
         k   = params.get("k")
-        tau = params.get("tau")
 
-        if eps is None or k is None or tau is None:
+
+        if eps is None or k is None:
             raise ValueError(
                 f"best_params.json is missing required keys under 'params'. "
                 f"Found params: {params}"
@@ -403,7 +403,6 @@ class EpsTuner:
         return {
             "eps":   float(eps),
             "k":     int(k),
-            "tau":   float(tau),               # ← was silently dropped before
             "topk":  max(1, int(k) // 2),
             "p":     2.0,
             "sigma": None,
