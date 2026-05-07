@@ -51,13 +51,11 @@ from arrowspace_tuner import EpsTuner
 
 tuner = EpsTuner(
     n_trials  = 15,
-    sample_n  = 5_000,    # 33x faster: explore on 5k, final build on full corpus
-    eps_low   = 0.8,      # narrow bounds if you know your corpus geometry
-    eps_high  = 2.5,
+    sample_n  = 50_000,   
+    eps_low   = 0.8,      
+    eps_high  = 10,
     k_low     = 15,
     k_high    = 40,
-    tau_low   = 0.05,
-    tau_high  = 0.5,
     n_probe   = 50,
     storage   = "sqlite:///tune.db",   # resume interrupted runs
 )
