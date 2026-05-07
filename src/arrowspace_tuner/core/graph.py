@@ -44,9 +44,14 @@ def gl_to_scipy(gl: PyGraphLaplacian) -> sp.csr_matrix:
     -------
     sp.csr_matrix
         The Laplacian as a SciPy sparse matrix, ready for eigendecomposition.
+
+    Notes
+    -----
+    ``gl.to_csr()`` returns a 3-tuple ``(data, indices, indptr)``.
+    The matrix shape is obtained separately via ``gl.shape()``.
     """
-    raw = gl.to_csr()          # returns (data, indices, indptr, shape)
-    shape = gl.shape()
+    raw     = gl.to_csr()   # returns (data, indices, indptr) — a 3-tuple
+    shape   = gl.shape()
     data    = np.asarray(raw[0], dtype=np.float64)
     indices = np.asarray(raw[1], dtype=np.int32)
     indptr  = np.asarray(raw[2], dtype=np.int32)
@@ -67,10 +72,13 @@ def fiedler_normalized_from_csr(L: sp.csr_matrix, nnz: int) -> float:
     N ≤ 5_000 : dense path via np.linalg.eigvalsh.
         Always converges, zero ARPACK overhead, fastest at this scale.
         Covers the sample_n=5_000 default path entirely.
+        eigvalsh returns eigenvalues in ascending order for symmetric
+        matrices, so all_vals[0] ≈ 0 (λ₁) and all_vals[1] = λ₂ (Fiedler).
     N > 5_000 : shift-invert ARPACK (sigma=0.0, which="LM").
         Finds the largest eigenvalues of L^{-1}, equivalent to the
         smallest eigenvalues of L. 5–20× faster than which="SM" and
-        far more numerically stable.
+        far more numerically stable. Output is NOT guaranteed sorted,
+        so the sorted() call is required for correctness.
         tol=1e-4 is sufficient because the Fiedler value feeds into
         log1p() — 4 significant digits is more than adequate.
 
@@ -105,10 +113,12 @@ def fiedler_normalized_from_csr(L: sp.csr_matrix, nnz: int) -> float:
 
         # ── eigenvalue computation ──────────────────────────────────────────
         if n <= 5_000:
+            # eigvalsh guarantees ascending order → no sort needed
             all_vals = np.linalg.eigvalsh(L_norm.toarray())
-            vals = all_vals[:2]
+            fiedler  = max(0.0, float(np.real(all_vals[1])))
         else:
-            vals = spla.eigsh(
+            # ARPACK output is NOT sorted; sorted() is required
+            vals    = spla.eigsh(
                 L_norm,
                 k=2,
                 sigma=0.0,
@@ -117,8 +127,7 @@ def fiedler_normalized_from_csr(L: sp.csr_matrix, nnz: int) -> float:
                 tol=1e-4,
                 maxiter=500,
             )
-
-        fiedler = max(0.0, float(sorted(np.real(vals))[1]))
+            fiedler = max(0.0, float(sorted(np.real(vals))[1]))
 
         logger.debug(
             "fiedler_normalized: λ₂=%.6f  NNZ=%d  N=%d  path=%s",

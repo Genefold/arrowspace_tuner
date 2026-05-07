@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 # Single source of truth for the default number of trials.
 # Referenced by StudyConfig, EpsTuner.__init__, and api.optuna().
 _DEFAULT_N_TRIALS: int = 15
+
+# Single source of truth for the MRR probe count.
+# 50 probes gives ~14% standard error — adequate for trial ranking.
+# Referenced by StudyConfig and api.optuna() to prevent silent divergence.
+_DEFAULT_N_PROBE: int = 50
 
 
 @dataclass
@@ -21,8 +26,9 @@ class BuildParams:
     k : int
         Number of nearest neighbours used when building the graph.
     topk : int
-        Number of results returned by search. Automatically set to k // 2
-        during optimisation; can be overridden for the final build.
+        Number of results returned by search.
+        Defaults to ``max(1, k // 2)`` via ``__post_init__`` when left at
+        the sentinel value ``-1``. Can be overridden for the final build.
     p : float
         Minkowski distance exponent (2.0 = Euclidean).
     sigma : float | None
@@ -37,12 +43,17 @@ class BuildParams:
 
     eps:            float        = 0.8
     k:              int          = 10
-    topk:           int          = 5
+    topk:           int          = -1   # sentinel: resolved in __post_init__
     p:              float        = 2.0
     sigma:          float | None = None
     max_clusters:   int | None   = None
     cluster_radius: float | None = None
     sampling_rate:  float        = 1.0
+
+    def __post_init__(self) -> None:
+        # Resolve topk sentinel: -1 means "use k // 2"
+        if self.topk == -1:
+            self.topk = max(1, self.k // 2)
 
     def to_dict(self) -> dict[str, Any]:
         """Return graph_params dict expected by ArrowSpaceBuilder.build()."""
@@ -110,10 +121,11 @@ class StudyConfig:
     ---------
     n_probe : int
         Number of corpus items used as query anchors per trial when
-        computing the spectral MRR-Top0 proxy. Scales search_batch cost
-        linearly — 50 probes gives ~14% MRR standard error, which is
-        more than adequate for ranking trials. Use 200 only for a final
-        high-accuracy evaluation where trial speed is not a concern.
+        computing the spectral MRR-Top0 proxy. Default: 50 (shared with
+        api.optuna() via _DEFAULT_N_PROBE). 50 probes gives ~14% MRR
+        standard error, which is adequate for ranking trials. Use 200
+        only for a final high-accuracy evaluation where trial speed is
+        not a concern.
     """
 
     n_trials:   int          = _DEFAULT_N_TRIALS
@@ -133,7 +145,29 @@ class StudyConfig:
     tau_low:  float = 0.1
     tau_high: float = 1.0
 
-    # MRR proxy — 50 gives ~14% s.e., adequate for trial ranking (was 200)
-    n_probe:  int   = 100
-    max_clusters:   int | None  = None
+    # MRR proxy — shared constant ensures api.optuna() and EpsTuner agree
+    n_probe:  int   = _DEFAULT_N_PROBE
+
+    max_clusters:   int | None   = None
     cluster_radius: float | None = None
+
+    def __post_init__(self) -> None:
+        """Validate search-space bounds at construction time."""
+        if self.n_trials < 1:
+            raise ValueError(f"n_trials must be >= 1, got {self.n_trials}")
+        if self.n_probe < 1:
+            raise ValueError(f"n_probe must be >= 1, got {self.n_probe}")
+        if self.eps_low >= self.eps_high:
+            raise ValueError(
+                f"eps_low must be < eps_high, got [{self.eps_low}, {self.eps_high}]"
+            )
+        if self.k_low >= self.k_high:
+            raise ValueError(
+                f"k_low must be < k_high, got [{self.k_low}, {self.k_high}]"
+            )
+        if self.tau_low >= self.tau_high:
+            raise ValueError(
+                f"tau_low must be < tau_high, got [{self.tau_low}, {self.tau_high}]"
+            )
+        if self.sample_n is not None and self.sample_n < 1:
+            raise ValueError(f"sample_n must be >= 1 or None, got {self.sample_n}")

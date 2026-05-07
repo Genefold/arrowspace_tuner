@@ -6,10 +6,70 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] — 2026-05-07
+
+### Fixed
+- **Critical — C-1:** `excep` syntax stump in `core/objective.py`
+  `build_and_score()` — the bare token made the entire package unimportable.
+  Restored as a proper `except BaseException as exc:` block with correct
+  indentation.
+- **Critical — C-2:** `save_report()` raised `ModuleNotFoundError` because
+  `reporting.py` was missing and `reporter.py` was empty. Implemented
+  `reporting.py` with `save_results()` producing `trials.csv`,
+  `best_params.json`, and Plotly HTML plots. `reporter.py` is kept as a
+  backward-compat stub.
+- **Critical — C-3:** `StudyConfig.n_probe` defaulted to `100` while
+  `api.optuna()` passed `n_probe=50`, causing silent behavioural divergence
+  between the two entry points. Introduced `_DEFAULT_N_PROBE = 50` constant
+  in `config.py`; both `StudyConfig` and `api.optuna()` now reference it.
+- **High — H-1:** `BuildParams.topk` defaulted to hardcoded `5` regardless
+  of `k`, contradicting the docstring's "k // 2" contract. Replaced with a
+  sentinel (`-1`) resolved by `__post_init__` to `max(1, k // 2)`.
+- **High — H-2:** `gl_to_scipy` comment claimed `to_csr()` returned a
+  4-tuple including `shape`; the Protocol and Rust binding return a 3-tuple.
+  Comment corrected; docstring updated.
+- **High — H-4:** MRR vectorisation crashed when `search_batch` returned no
+  results for all probe anchors (issues #16, #22 — small corpus or
+  `n_probe ≥ corpus_size`). Added explicit `row_widths.sum() == 0` guard
+  that raises `TrialPruned` before the undefined computation.
+- **Medium — M-1:** `logger.warning` call in `build_and_score()` exception
+  handler was mis-indented. Fixed.
+- **Medium — M-2:** Trailing space in `ArrowSpaceProtocol.search_batch`
+  signature (`gl: PyGraphLaplacian ,`). Removed.
+- **Medium — M-5:** `StudyConfig` accepted invalid inputs silently
+  (e.g. `eps_low >= eps_high`, `n_trials=0`). Added `__post_init__`
+  with bounds validation and clear error messages.
+- **Low — L-1:** `__version__` was hardcoded as `"0.1.0"` in both
+  `__init__.py` and `core/__init__.py` while `pyproject.toml` declared
+  `0.2.3`. All three copies are now replaced by a single
+  `importlib.metadata.version()` call in `__init__.py`; `core/__init__.py`
+  no longer declares `__version__`.
+- **Low — L-2:** CHANGELOG v0.2.1 entry referenced a non-existent
+  `min_clusters` field. Corrected.
+- **Low — L-3:** `gl_to_scipy` was exported in `core/__all__` but never
+  used externally. Removed from `__all__` (function kept for power users
+  who import it directly).
+- **Style — S-3:** `StudyConfig` used as return-type annotation in
+  `conftest.py` without being imported, requiring `# type: ignore` on every
+  fixture. Added `from arrowspace_tuner import StudyConfig` import.
+
+### Changed
+- `pyproject.toml` version bumped from `0.2.3` → `0.3.0`.
+- `core/__init__.py` — removed duplicate `__version__` attribute;
+  removed `gl_to_scipy` from `__all__`.
+- Fiedler dense path in `graph.py` — removed redundant `sorted()` call
+  (eigvalsh guarantees ascending order); documented why ARPACK path
+  still needs `sorted()`.
+
+---
+
 ## [0.2.1] — 2026-05-02
 
 ### Changed
-- `EpsTuner` configuration defaults — set `.max_clusters` and `.min_clusters` (or similar clustering bounds) to `None`. This delegates cluster sizing entirely to `arrowspace`'s internal heuristics, allowing it to determine the optimal number of clusters dynamically during the search rather than being constrained by the tuner.
+- `EpsTuner` configuration defaults — set `max_clusters` and `cluster_radius`
+  to `None`. This delegates cluster sizing entirely to `arrowspace`'s internal
+  heuristics, allowing it to determine the optimal number of clusters
+  dynamically during the search rather than being constrained by the tuner.
 
 ---
 

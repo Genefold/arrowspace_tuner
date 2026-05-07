@@ -63,7 +63,7 @@ class ArrowSpaceProtocol(Protocol):
     def search_batch(
         self,
         queries: np.ndarray,
-        gl: PyGraphLaplacian ,
+        gl: PyGraphLaplacian,
         tau: float,
     ) -> Sequence[Sequence[tuple[int, float]]]:
         """Run a batch of queries against the index."""
@@ -108,7 +108,7 @@ def build_and_score(
     """
     from arrowspace import ArrowSpaceBuilder
 
-# ── build graph ───────────────────────────────────────────────────────────
+    # ── build graph ───────────────────────────────────────────────────────────
     try:
         aspace: ArrowSpaceProtocol
         gl: PyGraphLaplacian
@@ -131,9 +131,9 @@ def build_and_score(
         raise
     except BaseException as exc:
         logger.warning(
-        "ArrowSpace .build() failed (eps=%.4f k=%d): %s — pruning",
-        params.eps, params.k, exc,
-    )
+            "ArrowSpace .build() failed (eps=%.4f k=%d): %s — pruning",
+            params.eps, params.k, exc,
+        )
         if trial:
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
@@ -179,9 +179,8 @@ def build_and_score(
         if trial:
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
-    
 
-    # ── pruner checkpoint 0: after Fiedler ─────────────────────────────────────
+    # ── pruner checkpoint 0: after Fiedler ────────────────────────────────────
     if trial is not None:
         trial.report(fiedler, step=0)
         if trial.should_prune():
@@ -264,11 +263,11 @@ def make_objective(
         n_fixed, size=min(cfg.n_probe, n_fixed), replace=False
     )
 
-    # ── best-trial cache (#9) ───────────────────────────────────────────────
+    # ── best-trial cache (#9) ─────────────────────────────────────────────────
     # Only populated when using the full corpus (not a subsample), because
     # subsample-built objects cannot be returned as the final (aspace, gl).
-    best_cache: dict[str, Any] = {}   # keys: "aspace", "gl", "score" when populated
-    _cache_lock = threading.Lock()  # protect concurrent updates (n_jobs > 1)
+    best_cache: dict[str, Any] = {}  # keys: "aspace", "gl", "score" when populated
+    _cache_lock = threading.Lock()   # protect concurrent updates (n_jobs > 1)
 
     def objective(trial: optuna.Trial) -> float:
 
@@ -319,7 +318,7 @@ def make_objective(
             )
             raise optuna.TrialPruned()
 
-        # ── 6. build k-NN index table ───────────────────────────────────────────
+        # ── 6. build k-NN index table ─────────────────────────────────────────
         P = len(probe_idx)
         knn_indices = np.zeros((P, K_EVAL), dtype=np.int64)
         row_widths  = np.zeros(P, dtype=np.int64)
@@ -330,7 +329,18 @@ def make_objective(
             for col, (idx_item, _) in enumerate(hits):
                 knn_indices[row, col] = idx_item
 
-        # ── 7. spectral MRR-Top0 proxy (vectorised) ────────────────────────────
+        # ── guard: prune if search returned no results for all probes ──────────
+        # Fixes issues #16 and #22: when n_probe approaches corpus_size or
+        # the graph is nearly disconnected, search_batch may return empty
+        # result lists for every probe, making the MRR computation undefined.
+        if row_widths.sum() == 0:
+            logger.warning(
+                "Trial %d: search_batch returned no results for any probe — pruning",
+                trial.number,
+            )
+            raise optuna.TrialPruned()
+
+        # ── 7. spectral MRR-Top0 proxy (vectorised) ───────────────────────────
         lambdas      = np.array(aspace.lambdas(), dtype=np.float64)
         sigma        = float(np.std(lambdas)) + 1e-9
         lambda_probe = lambdas[probe_idx]
@@ -351,7 +361,7 @@ def make_objective(
           + W_VAR  * float(np.log1p(var_lambda))
         )
 
-        # ── 9. update best-trial cache (full-corpus path only) ──────────────────
+        # ── 9. update best-trial cache (full-corpus path only) ────────────────
         if not using_subsample and aspace is not None:
             with _cache_lock:
                 if score > best_cache.get("score", -1.0):

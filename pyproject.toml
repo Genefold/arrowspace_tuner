@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arrowspace_tuner"
-version = "0.2.3"
+version = "0.3.0"
 description = "Hyperparameter discovery (eps auto-tuning) for ArrowSpace via Optuna"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -45,7 +45,7 @@ dependencies = [
 [project.optional-dependencies]
 
 # pip install arrowspace_tuner[report]
-# Needed for tuner.save_report() and all HTML/CSV output from reporter.py
+# Needed for tuner.save_report() and all HTML/CSV output from reporting.py
 report = [
     "plotly>=6.7.0",
     "pandas>=3.0.0",
@@ -58,7 +58,7 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.9",
     "mypy>=1.15",
-    "plotly>=6.7.0",   # needed to test reporter.py
+    "plotly>=6.7.0",   # needed to test reporting.py
     "pandas>=3.0.0",
 ]
 

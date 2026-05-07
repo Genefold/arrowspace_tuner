@@ -20,13 +20,18 @@ Quickstart
     print(tuner.best_score)
     tuner.save_report()         # requires pip install arrowspace-tuner[report]
 """
+from importlib.metadata import PackageNotFoundError, version
+
 from .api import optuna
 
 # Power-user exports: config dataclasses for advanced customisation
 from .core import BuildParams, StudyConfig
 from .tuner import EpsTuner
 
-__version__ = "0.1.0"
+try:
+    __version__: str = version("arrowspace_tuner")
+except PackageNotFoundError:
+    __version__ = "0.0.0+unknown"
 
 __all__ = [
     # primary public API

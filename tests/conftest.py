@@ -9,6 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from arrowspace_tuner import StudyConfig
+
 # ── constants ─────────────────────────────────────────────────────────────────
 
 N_SMALL  = 120    # fast: enough for a non-degenerate graph
@@ -80,8 +82,8 @@ def embeddings_flat() -> np.ndarray:
     that appeared when sharing the global `rng` fixture caused different
     RNG states depending on which fixtures were initialised first.
     """
-    rng = np.random.default_rng(999)
-    return rng.standard_normal((80, D)).astype(np.float64) * 0.01
+    rng_local = np.random.default_rng(999)
+    return rng_local.standard_normal((80, D)).astype(np.float64) * 0.01
 
 
 @pytest.fixture(scope="session")
@@ -99,14 +101,13 @@ def embeddings_1d(rng: np.random.Generator) -> np.ndarray:
 # ── StudyConfig fixtures ──────────────────────────────────────────────────────
 
 @pytest.fixture
-def fast_study_config() -> StudyConfig:  # type: ignore[name-defined]  # noqa: F821
+def fast_study_config() -> StudyConfig:
     """
     Minimal StudyConfig for fast unit tests.
 
     3 trials, small probe set, tight search bounds centred on a region
     known to produce valid graphs for the clustered fixtures above.
     """
-    from arrowspace_tuner import StudyConfig
     return StudyConfig(
         n_trials   = 3,
         sample_n   = None,
@@ -123,27 +124,26 @@ def fast_study_config() -> StudyConfig:  # type: ignore[name-defined]  # noqa: F
 
 
 @pytest.fixture
-def flat_study_config() -> StudyConfig:  # type: ignore[name-defined]  # noqa: F821
+def flat_study_config() -> StudyConfig:
     """
     StudyConfig for the flat/degenerate embedding tests.
 
     eps bounds are set relative to the data scale of embeddings_flat
-    (vectors scaled by 0.01 → pairwise distances ~ 0.014).
+    (vectors scaled by 0.01 → pairwise distances ~0.014).
     eps_high=0.05 is large enough to explore but small enough that
     arrowspace cannot form a fully-connected graph, ensuring every
-    trial is either pruned or returns a zero score.
+    trial is either pruned or returns a degenerate score.
     """
-    from arrowspace_tuner import StudyConfig
     return StudyConfig(
-        n_trials   = 3,
+        n_trials   = 5,
         sample_n   = None,
         seed       = SEED,
-        study_name = "test_study_flat",
+        study_name = "test_flat",
         eps_low    = 0.001,
         eps_high   = 0.05,
         k_low      = 3,
         k_high     = 10,
         tau_low    = 0.3,
         tau_high   = 1.2,
-        n_probe    = 20,
+        n_probe    = 10,
     )

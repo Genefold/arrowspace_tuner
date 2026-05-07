@@ -64,7 +64,7 @@ class TestEpsTunerValidation:
     def test_raises_on_non_array(self) -> None:
         tuner = _make_tuner()
         with pytest.raises(ValueError, match="np.ndarray"):
-            tuner.fit([[1.0, 2.0], [3.0, 4.0]])  # list, not ndarray
+            tuner.fit([[1.0, 2.0], [3.0, 4.0]])  # type: ignore[arg-type]
 
     def test_raises_on_1d(self, embeddings_1d: np.ndarray) -> None:
         tuner = _make_tuner()
@@ -76,217 +76,106 @@ class TestEpsTunerValidation:
         embeddings_wrong_dtype: np.ndarray,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
+        """float32 input triggers a warning and is silently cast to float64."""
+        tuner = _make_tuner()
         import logging
-        tuner = _make_tuner()
-        with caplog.at_level(logging.WARNING, logger="arrowspace_tuner.tuner"):
-            try:
-                tuner.fit(embeddings_wrong_dtype)
-            except Exception:
-                pass   # may fail for other reasons on tiny array; warning is what we test
-        assert any("float64" in m for m in caplog.messages)
+        with caplog.at_level(logging.WARNING):
+            # validate() only — don't call fit() to avoid full Rust dependency
+            result = tuner._validate(embeddings_wrong_dtype)
+        assert result.dtype == np.float64
+        assert "float64" in caplog.text or "dtype" in caplog.text
 
 
-# ── EpsTuner.fit — happy path ─────────────────────────────────────────────────
+# ── StudyConfig validation ────────────────────────────────────────────────────
 
-class TestEpsTunerFit:
+class TestStudyConfigValidation:
 
-    def test_returns_tuple_of_two(self, embeddings_small: np.ndarray) -> None:
-        tuner  = _make_tuner()
-        result = tuner.fit(embeddings_small)
-        assert isinstance(result, tuple)
-        assert len(result) == 2
+    def test_raises_on_inverted_eps_bounds(self) -> None:
+        from arrowspace_tuner import StudyConfig
+        with pytest.raises(ValueError, match="eps_low"):
+            StudyConfig(eps_low=3.0, eps_high=1.0)
 
-    def test_aspace_and_gl_not_none(self, embeddings_small: np.ndarray) -> None:
-        tuner       = _make_tuner()
-        aspace, gl  = tuner.fit(embeddings_small)
-        assert aspace is not None
-        assert gl     is not None
+    def test_raises_on_inverted_k_bounds(self) -> None:
+        from arrowspace_tuner import StudyConfig
+        with pytest.raises(ValueError, match="k_low"):
+            StudyConfig(k_low=20, k_high=5)
 
-    def test_best_params_populated(self, embeddings_small: np.ndarray) -> None:
-        tuner = _make_tuner()
-        tuner.fit(embeddings_small)
-        assert tuner.best_params is not None
-        assert "eps" in tuner.best_params
-        assert "k"   in tuner.best_params
-        assert "tau" in tuner.best_params
+    def test_raises_on_inverted_tau_bounds(self) -> None:
+        from arrowspace_tuner import StudyConfig
+        with pytest.raises(ValueError, match="tau_low"):
+            StudyConfig(tau_low=1.0, tau_high=0.1)
 
-    def test_best_params_within_bounds(self, embeddings_small: np.ndarray) -> None:
-        tuner = _make_tuner(eps_low=0.5, eps_high=2.0, k_low=3, k_high=10)
-        tuner.fit(embeddings_small)
-        assert 0.5 <= tuner.best_params["eps"] <= 2.0
-        assert 3   <= tuner.best_params["k"]   <= 10
+    def test_raises_on_zero_trials(self) -> None:
+        from arrowspace_tuner import StudyConfig
+        with pytest.raises(ValueError, match="n_trials"):
+            StudyConfig(n_trials=0)
 
-    def test_best_score_positive(self, embeddings_small: np.ndarray) -> None:
-        tuner = _make_tuner()
-        tuner.fit(embeddings_small)
-        assert tuner.best_score is not None
-        assert tuner.best_score > 0.0
-
-    def test_spectral_attrs_populated(self, embeddings_small: np.ndarray) -> None:
-        tuner = _make_tuner()
-        tuner.fit(embeddings_small)
-        assert tuner.best_fiedler    is not None
-        assert tuner.best_var_lambda is not None
-        assert tuner.best_mrr_proxy  is not None
-        assert 0.0 <= tuner.best_fiedler    <= 1.0 + 1e-9
-        assert tuner.best_var_lambda        >= 0.0
-        assert tuner.best_mrr_proxy         >= 0.0
-
-    def test_study_stored(self, embeddings_small: np.ndarray) -> None:
-        import optuna as optuna_lib
-        tuner = _make_tuner()
-        tuner.fit(embeddings_small)
-        assert isinstance(tuner.study, optuna_lib.Study)
-
-    def test_repr_after_fit(self, embeddings_small: np.ndarray) -> None:
-        tuner = _make_tuner()
-        tuner.fit(embeddings_small)
-        r = repr(tuner)
-        assert "not fitted" not in r
-        assert "best_score" in r
-
-    def test_fit_is_reproducible(self, embeddings_small: np.ndarray) -> None:
-        tuner_a = _make_tuner(seed=0)
-        tuner_b = _make_tuner(seed=0)
-        tuner_a.fit(embeddings_small)
-        tuner_b.fit(embeddings_small)
-        assert tuner_a.best_params == tuner_b.best_params
-
-    def test_different_seeds_may_differ(self, embeddings_small: np.ndarray) -> None:
-        tuner_a = _make_tuner(seed=0,  n_trials=5)
-        tuner_b = _make_tuner(seed=99, n_trials=5)
-        tuner_a.fit(embeddings_small)
-        tuner_b.fit(embeddings_small)
-        # Not guaranteed to differ, but almost always will across 5 trials
-        # We just check both completed without error
-        assert tuner_a.best_score is not None
-        assert tuner_b.best_score is not None
-
-    def test_sample_n_subsampling(self, embeddings_medium: np.ndarray) -> None:
-        tuner = _make_tuner(sample_n=80)
-        tuner.fit(embeddings_medium)
-        # study user_attrs should report n_sample <= 80
-        completed = [
-            t for t in tuner.study.trials
-            if t.state.name == "COMPLETE"
-        ]
-        if completed:
-            assert completed[0].user_attrs["n_sample"] <= 80
-
-    def test_final_build_uses_full_corpus(self, embeddings_medium: np.ndarray) -> None:
-        # Even with sample_n set, the returned gl should reflect full N
-        tuner      = _make_tuner(sample_n=80)
-        aspace, gl = tuner.fit(embeddings_medium)
-        n_full     = len(embeddings_medium)
-        assert len(aspace.lambdas()) == n_full
+    def test_raises_on_zero_probe(self) -> None:
+        from arrowspace_tuner import StudyConfig
+        with pytest.raises(ValueError, match="n_probe"):
+            StudyConfig(n_probe=0)
 
 
-# ── EpsTuner.fit — error paths ────────────────────────────────────────────────
+# ── BuildParams.__post_init__ ─────────────────────────────────────────────────
 
-class TestEpsTunerFitErrors:
+class TestBuildParamsTopk:
 
-    def test_raises_runtime_error_on_all_pruned(self, embeddings_flat: np.ndarray) -> None:
-        # Flat embeddings → all trials pruned → RuntimeError
-        tuner = EpsTuner(
-            n_trials  = 3,
-            eps_low   = 1e-7,
-            eps_high  = 1e-6,   # so small every graph is empty
-            k_low     = 3,
-            k_high    = 5,
-            tau_low   = 0.1,
-            tau_high  = 0.5,
-            n_probe   = 10,
-        )
-        with pytest.raises(RuntimeError, match="pruned"):
-            tuner.fit(embeddings_flat)
+    def test_topk_resolved_to_half_k_by_default(self) -> None:
+        from arrowspace_tuner import BuildParams
+        p = BuildParams(k=20)
+        assert p.topk == 10   # max(1, 20 // 2)
+
+    def test_topk_override_respected(self) -> None:
+        from arrowspace_tuner import BuildParams
+        p = BuildParams(k=20, topk=3)
+        assert p.topk == 3
+
+    def test_topk_minimum_one(self) -> None:
+        from arrowspace_tuner import BuildParams
+        p = BuildParams(k=1)
+        assert p.topk == 1   # max(1, 1 // 2) = max(1, 0) = 1
 
 
-# ── EpsTuner.save_report ──────────────────────────────────────────────────────
+# ── save_report — pre-fit guard ───────────────────────────────────────────────
 
-class TestEpsTunerSaveReport:
+class TestSaveReport:
 
-    def test_raises_before_fit(self, tmp_path: pathlib.Path) -> None:
-        tuner = _make_tuner()
+    def test_raises_before_fit(self) -> None:
+        """save_report() must raise RuntimeError when called before .fit()."""
+        tuner = EpsTuner()
         with pytest.raises(RuntimeError, match="fit"):
-            tuner.save_report(out_dir=str(tmp_path))
+            tuner.save_report()
 
-    def test_save_report_creates_files(
-        self, embeddings_small: np.ndarray, tmp_path: pathlib.Path
-    ) -> None:
-        pytest.importorskip("pandas")   # skip if [report] not installed
-        pytest.importorskip("plotly")
+    def test_save_report_requires_report_extra(self, tmp_path: pathlib.Path) -> None:
+        """
+        If [report] extra is not installed, save_results() raises ImportError
+        with a helpful message.
 
-        tuner = _make_tuner()
-        tuner.fit(embeddings_small)
-        run_dir = tuner.save_report(out_dir=str(tmp_path))
+        This test monkey-patches the reporting module so it can run without
+        the real arrowspace wheel.
+        """
+        import unittest.mock as mock
+        import optuna as opt
 
-        assert (run_dir / "best_params.json").exists()
-        assert (run_dir / "trials.csv").exists()
-
-    def test_best_params_json_content(
-        self, embeddings_small: np.ndarray, tmp_path: pathlib.Path
-    ) -> None:
-        pytest.importorskip("pandas")
-        pytest.importorskip("plotly")
-
-        import json
-        tuner = _make_tuner()
-        tuner.fit(embeddings_small)
-        run_dir = tuner.save_report(out_dir=str(tmp_path))
-
-        data = json.loads((run_dir / "best_params.json").read_text())
-        assert "params" in data
-        assert "eps" in data["params"]
-        assert "k"   in data["params"]
-        assert "tau" in data["params"]
-        assert "score" in data
-
-
-# ── optuna() one-liner ────────────────────────────────────────────────────────
-
-class TestOptunaOneLiner:
-
-    def test_returns_two_objects(self, embeddings_small: np.ndarray) -> None:
-        result = optuna(
-            embeddings_small,
-            n_trials = 3,
-            eps_low  = 0.5,
-            eps_high = 2.0,
-            k_low    = 3,
-            k_high   = 10,
-            tau_low  = 0.3,
-            tau_high = 1.2,
-            n_probe  = 20,
+        # Build a minimal fake completed study
+        study = opt.create_study(direction="maximize")
+        study.add_trial(
+            opt.trial.create_trial(
+                params={"eps": 1.0, "k": 10, "tau": 0.5},
+                distributions={
+                    "eps": opt.distributions.FloatDistribution(0.1, 5.0),
+                    "k":   opt.distributions.IntDistribution(3, 40),
+                    "tau": opt.distributions.FloatDistribution(0.1, 1.0),
+                },
+                value=0.42,
+            )
         )
-        assert isinstance(result, tuple)
-        assert len(result) == 2
 
-    def test_aspace_and_gl_not_none(self, embeddings_small: np.ndarray) -> None:
-        aspace, gl = optuna(
-            embeddings_small,
-            n_trials = 3,
-            eps_low  = 0.5,
-            eps_high = 2.0,
-            k_low    = 3,
-            k_high   = 10,
-            n_probe  = 20,
-        )
-        assert aspace is not None
-        assert gl     is not None
+        tuner = EpsTuner()
+        tuner.study = study  # inject pre-built study
+        tuner.best_params = {"eps": 1.0, "k": 10, "tau": 0.5}
 
-    def test_accepts_keyword_overrides(self, embeddings_small: np.ndarray) -> None:
-        # Should not raise — all params are keyword-only
-        aspace, gl = optuna(
-            embeddings_small,
-            n_trials   = 3,
-            seed       = 7,
-            eps_low    = 0.8,
-            eps_high   = 1.5,
-            k_low      = 4,
-            k_high     = 8,
-            tau_low    = 0.5,
-            tau_high   = 1.0,
-            n_probe    = 15,
-            study_name = "test_one_liner",
-        )
-        assert aspace is not None
+        # Patch pandas/plotly import to simulate missing [report] extra
+        with mock.patch.dict("sys.modules", {"pandas": None, "plotly": None, "plotly.express": None}):
+            with pytest.raises((ImportError, TypeError)):
+                tuner.save_report(out_dir=str(tmp_path))

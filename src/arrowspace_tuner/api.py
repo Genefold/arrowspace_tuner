@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .core.config import _DEFAULT_N_TRIALS
+from .core.config import _DEFAULT_N_PROBE, _DEFAULT_N_TRIALS
 from .tuner import EpsTuner
 
 
@@ -30,7 +30,7 @@ def optuna(
     k_high:     int        = 40,
     tau_low:    float      = 0.1,
     tau_high:   float      = 1.0,
-    n_probe:    int        = 50,
+    n_probe:    int        = _DEFAULT_N_PROBE,
 ) -> tuple[object, object]:
     """
     Auto-discover eps, k, and tau and return a ready-to-use (aspace, gl) pair.
@@ -79,7 +79,7 @@ def optuna(
 
     Examples
     --------
-    Minimal usage — matches the acceptance criteria exactly:
+    Minimal usage — matches the acceptance criteria exactly::
 
         import numpy as np
         import arrowspace_tuner as arrowspace
@@ -89,7 +89,7 @@ def optuna(
 
         results = aspace.search(query_embedding, gl, tau=0.8)
 
-    With a custom search range:
+    With a custom search range::
 
         aspace, gl = arrowspace.optuna(
             embeddings,
@@ -99,7 +99,7 @@ def optuna(
             eps_high=3.0,
         )
 
-    Inspecting the study after the fact:
+    Inspecting the study after the fact::
 
         from arrowspace_tuner import EpsTuner
 
@@ -108,7 +108,7 @@ def optuna(
         print(tuner.best_params)
         tuner.save_report()
 
-    Resuming an interrupted run:
+    Resuming an interrupted run::
 
         aspace, gl = arrowspace.optuna(
             embeddings,
