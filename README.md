@@ -15,7 +15,7 @@ ArrowSpace's retrieval quality depends on three graph-construction parameters:
 |---|---|
 | `eps` | Neighbourhood radius for graph edges |
 | `k` | Number of nearest neighbours per node |
-| `tau` | Search temperature (exploration vs. exploitation) |
+
 
 Setting these by hand is tedious and corpus-dependent. `arrowspace_tuner` uses [Optuna](https://optuna.org/) and a label-free spectral MRR proxy to find them automatically in minutes.
 
@@ -51,13 +51,11 @@ from arrowspace_tuner import EpsTuner
 
 tuner = EpsTuner(
     n_trials  = 15,
-    sample_n  = 5_000,    # 33x faster: explore on 5k, final build on full corpus
-    eps_low   = 0.8,      # narrow bounds if you know your corpus geometry
-    eps_high  = 2.5,
+    sample_n  = 50_000,   
+    eps_low   = 0.8,      
+    eps_high  = 10,
     k_low     = 15,
     k_high    = 40,
-    tau_low   = 0.05,
-    tau_high  = 0.5,
     n_probe   = 50,
     storage   = "sqlite:///tune.db",   # resume interrupted runs
 )
@@ -73,14 +71,6 @@ print(tuner.best_mrr_proxy) # 2.896  — retrieval coherence proxy
 tuner.save_report(out_dir="results")
 ```
 
-## Speed
-
-The dominant cost is building the ArrowSpace graph on N vectors. With `sample_n`:
-
-| Setting | Per trial | 15 trials | Notes |
-|---|---|---|---|
-| sample_n = 50k | ~23 min | ~5.8h | baseline |
-| `sample_n=5_000` | ~1.5 min | **~27 min** | **33x faster, same best params** |
 
 The final build after the study always uses the full corpus.
 
