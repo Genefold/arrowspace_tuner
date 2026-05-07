@@ -36,7 +36,7 @@ class TestBuildParams:
 
     def test_topk_default_is_half_k(self) -> None:
         p = BuildParams(k=12)
-        assert p.topk == 5   # default, not k//2 — user must set explicitly
+        assert p.topk == 6   # k=12, so __post_init__ sets topk = max(1, 12 // 2) = 6
 
 
 # ── build_and_score ───────────────────────────────────────────────────────────

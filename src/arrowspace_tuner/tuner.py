@@ -16,6 +16,7 @@ Typical usage:
 """
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -150,6 +151,7 @@ class EpsTuner:
         self.best_var_lambda: float | None          = None
         self.best_mrr_proxy:  float | None          = None
         self.study:           optuna.Study | None   = None
+        self._last_report_path: Path | None = None  
 
     # ── public interface ─────────────────────────────────────────────────────────
 
@@ -335,9 +337,78 @@ class EpsTuner:
             raise RuntimeError("Call .fit() before .save_report().")
 
         from .reporting import save_results
-        return save_results(self.study, out_dir=out_dir)
+        path = save_results(self.study, out_dir=out_dir)
+        self._last_report_path = path
+        return path
 
-    # ── private helpers ──────────────────────────────────────────────────────────
+
+    def load_best_params(self, out_dir: str = "results") -> dict[str, Any]:
+        """
+        Load best hyperparameters from the most recently saved JSON report.
+
+        If called in the same session after .save_report(), uses that exact
+        path directly. Otherwise searches the disk for the latest timestamped
+        run under out_dir/<study_name>/.
+
+        Parameters
+        ----------
+        out_dir : str
+            Root results directory. Ignored when _last_report_path is set.
+
+        Returns
+        -------
+        dict with keys: eps (float), k (int), tau (float), topk (int),
+        p (float), sigma (None).
+
+        Raises
+        ------
+        FileNotFoundError
+            If no study directory or timestamped run is found.
+        ValueError
+            If best_params.json is missing required keys.
+        """
+
+        if self._last_report_path is not None:
+            report_dir = self._last_report_path
+        else:
+            study_dir = Path(out_dir) / self._cfg.study_name
+            if not study_dir.exists() or not study_dir.is_dir():
+                raise FileNotFoundError(f"No study directory found at {study_dir}")
+            subdirs = sorted(d for d in study_dir.iterdir() if d.is_dir())
+            if not subdirs:
+                raise FileNotFoundError(f"No timestamped runs found in {study_dir}")
+            report_dir = subdirs[-1]  # YYYYMMDD_HHMMSS sorts chronologically
+
+        # 2. Read the JSON
+        json_path = report_dir / "best_params.json"
+        if not json_path.exists():
+            raise FileNotFoundError(
+                f"Could not find 'best_params.json' in {report_dir}"
+            )
+        with open(json_path, encoding="utf-8") as f:
+            data = json.load(f)
+
+        # 3. params are nested under "params" key — not at the top level
+        params = data.get("params", {})
+        eps = params.get("eps")
+        k   = params.get("k")
+        tau = params.get("tau")
+
+        if eps is None or k is None or tau is None:
+            raise ValueError(
+                f"best_params.json is missing required keys under 'params'. "
+                f"Found params: {params}"
+            )
+
+        return {
+            "eps":   float(eps),
+            "k":     int(k),
+            "tau":   float(tau),               # ← was silently dropped before
+            "topk":  max(1, int(k) // 2),
+            "p":     2.0,
+            "sigma": None,
+        }
+
 
     def _validate(self, embeddings: np.ndarray) -> np.ndarray:
         """

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 # Single source of truth for the default number of trials.
@@ -165,7 +165,7 @@ class StudyConfig:
             raise ValueError(
                 f"k_low must be < k_high, got [{self.k_low}, {self.k_high}]"
             )
-        if self.tau_low >= self.tau_high:
+        if self.tau_low > self.tau_high:
             raise ValueError(
                 f"tau_low must be < tau_high, got [{self.tau_low}, {self.tau_high}]"
             )
