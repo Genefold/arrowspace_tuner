@@ -56,11 +56,15 @@ class BuildParams:
             self.topk = max(1, self.k // 2)
 
     def to_dict(self) -> dict[str, Any]:
-        """Return graph_params dict expected by ArrowSpaceBuilder.build()."""
+        """Return graph_params dict expected by ArrowSpaceBuilder.build().
+
+        Note: tau is intentionally absent — it is a query-time parameter
+        and must NOT be passed to the builder.
+        """
         return {
             "eps":   self.eps,
             "k":     self.k,
-            "topk":  self.topk,
+            "topk":  self.topk,   # rename to top_k in #28
             "p":     self.p,
             "sigma": self.sigma,
         }

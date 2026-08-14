@@ -8,7 +8,8 @@ Typical usage:
     aspace, gl = tuner.fit(embeddings)
 
     # inspect results
-    print(tuner.best_params)   # {"eps": 1.2, "k": 14, "tau": 0.8}
+    print(tuner.best_params)   # {"eps": 1.2, "k": 14, "top_k": 7, "p": 2.0, "sigma": None}
+    print(tuner.best_tau)      # 0.8  — use at search time: aspace.search(q, gl, tau=tuner.best_tau)
     print(tuner.best_score)
 
     # optional: save full report (requires [report] extra)
@@ -94,7 +95,13 @@ class EpsTuner:
     Attributes (available after .fit())
     ------------------------------------
     best_params : dict[str, Any]
-        Best hyperparameters found: {"eps": float, "k": int, "tau": float}.
+        Optimised **build-time** graph parameters:
+        {"eps": float, "k": int, "top_k": int, "p": float, "sigma": None}.
+        Ready to be passed directly to ArrowSpaceBuilder.build().
+        Note: tau is NOT included here — see best_tau.
+    best_tau : float
+        Optimal search temperature found during tuning. **Query-time** param.
+        Use as: aspace.search(query, gl, tau=tuner.best_tau)
     best_score : float
         Best composite objective score achieved.
     best_fiedler : float
@@ -150,6 +157,7 @@ class EpsTuner:
         self.best_fiedler:    float | None          = None
         self.best_var_lambda: float | None          = None
         self.best_mrr_proxy:  float | None          = None
+        self.best_tau:        float | None          = None   # query-time param, NOT in best_params
         self.study:           optuna.Study | None   = None
         self._last_report_path: Path | None = None  
 
@@ -174,6 +182,29 @@ class EpsTuner:
             ArrowSpace index built with the best hyperparameters found.
         gl : GraphLaplacian
             Corresponding graph Laplacian.
+
+        Attributes (available after .fit())
+        ------------------------------------
+        best_params : dict[str, Any]
+            Optimised **build-time** graph parameters:
+            {"eps": float, "k": int, "top_k": int, "p": float, "sigma": None}.
+            Ready to be passed directly to ArrowSpaceBuilder.build().
+            Note: tau is NOT included here — see best_tau.
+
+        best_tau : float
+            Optimal search temperature found during tuning. **Query-time** param.
+            Use as: aspace.search(query, gl, tau=tuner.best_tau)
+
+        best_score : float
+            Best composite objective score achieved.
+        best_fiedler : float
+            Fiedler value at the best trial (connectivity health).
+        best_var_lambda : float
+            Lambda variance at the best trial (spectral richness).
+        best_mrr_proxy : float
+            MRR proxy at the best trial (retrieval coherence).
+        study : optuna.Study
+            The raw Optuna study object for custom analysis.
 
         Raises
         ------
@@ -285,8 +316,17 @@ class EpsTuner:
 
         # ── store results ─────────────────────────────────────────────────────
         best                 = study.best_trial
+        raw_params           = best.params          # {"eps": float, "k": int, "tau": float}
+
         self.study           = study
-        self.best_params     = best.params
+        self.best_tau        = float(raw_params["tau"])  # saved separately — query-time only
+        self.best_params     = {
+            "eps":   raw_params["eps"],
+            "k":     raw_params["k"],
+            "top_k": max(1, raw_params["k"] // 2),
+            "p":     2.0,
+            "sigma": None,
+        }
         self.best_score      = best.value
         self.best_fiedler    = best.user_attrs.get("fiedler")
         self.best_var_lambda = best.user_attrs.get("var_lambda")
@@ -297,7 +337,7 @@ class EpsTuner:
             self.best_score,
             self.best_params["eps"],
             self.best_params["k"],
-            self.best_params["tau"],
+            self.best_tau,
         )
 
         # ── final build: use cached objects if available (#9) ──────────────────
@@ -453,7 +493,7 @@ class EpsTuner:
         params = BuildParams(
             eps  = self.best_params["eps"],
             k    = self.best_params["k"],
-            topk = max(1, self.best_params["k"] // 2),
+            topk = self.best_params["top_k"],
         )
 
         embeddings = np.ascontiguousarray(embeddings, dtype=np.float64)
@@ -484,7 +524,9 @@ class EpsTuner:
     def __repr__(self) -> str:
         fitted = self.best_params is not None
         status = (
-            f"best_score={self.best_score:.6f} params={self.best_params}"
+            f"best_score={self.best_score:.6f} "
+            f"params={self.best_params} "
+            f"best_tau={self.best_tau:.3f}"
             if fitted else "not fitted"
         )
         return (
