@@ -9,13 +9,13 @@ Hyperparameter discovery for [ArrowSpace](https://github.com/tuned-org-uk/arrows
 
 ## Why
 
-ArrowSpace's retrieval quality depends on three graph-construction parameters:
+ArrowSpace's retrieval quality depends on three parameters:
 
 | Parameter | What it controls |
 |---|---|
 | `eps` | Neighbourhood radius for graph edges |
 | `k` | Number of nearest neighbours per node |
-
+| `tau` | Search temperature (query-time, tuned automatically) |
 
 Setting these by hand is tedious and corpus-dependent. `arrowspace_tuner` uses [Optuna](https://optuna.org/) and a label-free spectral MRR proxy to find them automatically in minutes.
 
@@ -34,11 +34,13 @@ pip install arrowspace-tuner[report]
 ```python
 import numpy as np
 import arrowspace_tuner as arrowspace
+from arrowspace_tuner import ArrowSpaceBuilder
 
 embeddings = np.load("corpus.npy")   # shape (N, D) float64
 
 # One-liner: auto-discover eps, k, tau — runs in ~15 min on 50k corpus
-aspace, gl = arrowspace.optuna(embeddings)
+graph_params = arrowspace.tune(embeddings)
+aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
 # Search as normal
 results = aspace.search(query_embedding, gl, tau=0.8)
@@ -47,12 +49,12 @@ results = aspace.search(query_embedding, gl, tau=0.8)
 ## Power-user API
 
 ```python
-from arrowspace_tuner import EpsTuner
+from arrowspace_tuner import EpsTuner, ArrowSpaceBuilder
 
 tuner = EpsTuner(
     n_trials  = 15,
-    sample_n  = 50_000,   
-    eps_low   = 0.8,      
+    sample_n  = 50_000,
+    eps_low   = 0.8,
     eps_high  = 10,
     k_low     = 15,
     k_high    = 40,
@@ -60,17 +62,21 @@ tuner = EpsTuner(
     storage   = "sqlite:///tune.db",   # resume interrupted runs
 )
 
-aspace, gl = tuner.fit(embeddings)
+graph_params = tuner.fit(embeddings)
+aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
-print(tuner.best_params)    # {"eps": 1.615, "k": 38, "tau": 0.114}
+print(tuner.best_params)    # {"eps": 1.615, "k": 38, "top_k": 19, "p": ..., "sigma": ...}
+print(tuner.best_tau)       # 0.114  — query-time only, not in best_params
 print(tuner.best_score)     # 2.138
 print(tuner.best_fiedler)   # 0.718  — graph connectivity health
 print(tuner.best_mrr_proxy) # 2.896  — retrieval coherence proxy
 
+# Access graph params without file I/O
+print(tuner.graph_params)   # same as best_params, raises RuntimeError before .fit()
+
 # Save CSV + HTML plots (requires [report] extra)
 tuner.save_report(out_dir="results")
 ```
-
 
 The final build after the study always uses the full corpus.
 
