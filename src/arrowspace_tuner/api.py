@@ -1,14 +1,12 @@
 """
 api.py — one-liner convenience function for hyperparameter discovery.
 
-This module exists solely to satisfy the acceptance criteria:
-
-    aspace, gl = arrowspace.optuna(embeddings)
-
-It is a thin shim over EpsTuner with sensible defaults.
+This module is a thin shim over EpsTuner with sensible defaults.
 For any non-trivial use case, instantiate EpsTuner directly.
 """
 from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 
@@ -31,19 +29,18 @@ def optuna(
     tau_low:    float      = 0.1,
     tau_high:   float      = 1.0,
     n_probe:    int        = _DEFAULT_N_PROBE,
-) -> tuple[object, object]:
+) -> dict[str, Any]:
     """
-    Auto-discover eps, k, and tau and return a ready-to-use (aspace, gl) pair.
+    Auto-discover eps, k, and tau and return the best graph parameters.
 
     This is the simplest entry point to arrowspace_tuner. It runs an Optuna
-    study with default settings and returns the ArrowSpace index built with
-    the best hyperparameters found.
+    study with default settings and returns a dict of build-time graph
+    parameters ready for ArrowSpaceBuilder.build().
 
     Defaults are tuned for speed on large corpora (> 50k items):
     - sample_n=5_000 gives a 33x speedup over full-corpus trials with
       identical best params found (validated on a 50k CVE corpus).
     - n_probe=50 is sufficient to rank parameter regions reliably.
-    - The final build after the study always uses the full corpus.
 
     Parameters
     ----------
@@ -72,26 +69,37 @@ def optuna(
 
     Returns
     -------
-    aspace : ArrowSpace
-        ArrowSpace index built with the best hyperparameters found.
-    gl : GraphLaplacian
-        Corresponding graph Laplacian.
+    dict[str, Any]
+        Optimised build-time graph parameters:
+        {"eps": float, "k": int, "top_k": int, "p": float, "sigma": None}.
+        Pass these to ArrowSpaceBuilder.build(graph_params, embeddings).
+
+        Note: tau is **not** in this dict. The one-liner path discards the
+        EpsTuner instance, so ``best_tau`` is inaccessible. Use EpsTuner
+        directly if you need the optimal search temperature:
+
+            tuner = EpsTuner(...)
+            graph_params = tuner.fit(embeddings)
+            aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
+            results = aspace.search(query, gl, tau=tuner.best_tau)
 
     Examples
     --------
-    Minimal usage — matches the acceptance criteria exactly::
+    Minimal usage::
 
         import numpy as np
+        from arrowspace import ArrowSpaceBuilder
         import arrowspace_tuner as arrowspace
 
         embeddings = np.load("corpus.npy")
-        aspace, gl = arrowspace.optuna(embeddings)
+        graph_params = arrowspace.optuna(embeddings)
+        aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
         results = aspace.search(query_embedding, gl, tau=0.8)
 
     With a custom search range::
 
-        aspace, gl = arrowspace.optuna(
+        graph_params = arrowspace.optuna(
             embeddings,
             n_trials=30,
             sample_n=10_000,
@@ -99,18 +107,21 @@ def optuna(
             eps_high=3.0,
         )
 
-    Inspecting the study after the fact::
+    Inspecting the study after the fact (also gives access to best_tau)::
 
+        from arrowspace import ArrowSpaceBuilder
         from arrowspace_tuner import EpsTuner
 
         tuner = EpsTuner(n_trials=15, sample_n=5_000)
-        aspace, gl = tuner.fit(embeddings)
+        graph_params = tuner.fit(embeddings)
+        aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
         print(tuner.best_params)
+        print(tuner.best_tau)
         tuner.save_report()
 
     Resuming an interrupted run::
 
-        aspace, gl = arrowspace.optuna(
+        graph_params = arrowspace.optuna(
             embeddings,
             storage="sqlite:///tune.db",
         )

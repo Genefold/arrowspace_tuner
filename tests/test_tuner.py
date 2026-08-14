@@ -294,3 +294,40 @@ class TestBestTauSeparation:
         tuner = EpsTuner()
         r = repr(tuner)
         assert "not fitted" in r
+
+
+# ── fit() returns graph_params dict ───────────────────────────────────────────
+
+class TestFitReturnsParams:
+    """Tests that EpsTuner.fit() and api.optuna() return graph_params dicts."""
+
+    def test_fit_return_type(self, embeddings_small: np.ndarray) -> None:
+        tuner = _make_tuner()
+        result = tuner.fit(embeddings_small)
+        assert isinstance(result, dict)
+
+    def test_fit_return_keys(self, embeddings_small: np.ndarray) -> None:
+        tuner = _make_tuner()
+        result = tuner.fit(embeddings_small)
+        assert set(result.keys()) == {"eps", "k", "top_k", "p", "sigma"}
+
+    def test_fit_return_equals_best_params(self, embeddings_small: np.ndarray) -> None:
+        tuner = _make_tuner()
+        result = tuner.fit(embeddings_small)
+        assert result is tuner.best_params
+
+    def test_fit_no_aspace_returned(self, embeddings_small: np.ndarray) -> None:
+        tuner = _make_tuner()
+        result = tuner.fit(embeddings_small)
+        assert not isinstance(result, tuple)
+
+    def test_best_tau_still_set(self, embeddings_small: np.ndarray) -> None:
+        tuner = _make_tuner()
+        tuner.fit(embeddings_small)
+        assert tuner.best_tau is not None
+        assert isinstance(tuner.best_tau, float)
+
+    def test_optuna_return_type(self, embeddings_small: np.ndarray) -> None:
+        result = optuna(embeddings_small, n_trials=3, seed=42, sample_n=None, n_probe=20)
+        assert isinstance(result, dict)
+        assert set(result.keys()) == {"eps", "k", "top_k", "p", "sigma"}
