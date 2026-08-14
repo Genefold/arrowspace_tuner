@@ -13,7 +13,7 @@ import numpy as np
 import optuna as opt
 import pytest
 
-from arrowspace_tuner import EpsTuner, optuna
+from arrowspace_tuner import EpsTuner, tune
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -328,8 +328,8 @@ class TestFitReturnsParams:
         assert tuner.best_tau is not None
         assert isinstance(tuner.best_tau, float)
 
-    def test_optuna_return_type(self, embeddings_small: np.ndarray) -> None:
-        result = optuna(embeddings_small, n_trials=3, seed=42, sample_n=None, n_probe=20)
+    def test_tune_return_type(self, embeddings_small: np.ndarray) -> None:
+        result = tune(embeddings_small, n_trials=3, seed=42, sample_n=None, n_probe=20)
         assert isinstance(result, dict)
         assert set(result.keys()) == {"eps", "k", "top_k", "p", "sigma"}
 

@@ -20,10 +20,25 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Added `EpsTuner.graph_params` property: returns `best_params` after
   fitting without requiring file I/O. Raises `RuntimeError` if called
   before `.fit()`.
+- Added `arrowspace_tuner.tune(embeddings, *, tuner=None, **kwargs)` —
+  new primary one-liner entry point. Forwards all kwargs to `EpsTuner`
+  with zero parameter duplication. Supports `n_jobs`, `max_clusters`,
+  and `cluster_radius`, which were silently missing from `optuna()`.
 
 ### Changed
 - `load_best_params()` renamed to `load_graph_params()`. The old name
   is retained as a deprecated alias emitting `DeprecationWarning`.
+
+### Deprecated
+- `arrowspace_tuner.optuna()` is deprecated. It now emits
+  `DeprecationWarning` and delegates to `tune()`. Will be removed in the
+  next minor release.
+
+### Breaking Changes (behaviour)
+- `tune()` no longer defaults to `sample_n=5_000`. It inherits
+  `EpsTuner`'s default (`sample_n=None`, i.e. full corpus every trial).
+  Users relying on the implicit subsampling of `optuna()` must now pass
+  `sample_n=5_000` explicitly to `tune()`.
 
 ### Fixed
 - `load_graph_params()` (formerly `load_best_params()`) now returns
