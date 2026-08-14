@@ -94,7 +94,7 @@ def optuna(
     """
     Deprecated. Use tune() instead.
 
-    .. deprecated::
+    .. deprecated:: 0.4.0
         optuna() is deprecated and will be removed in a future release.
         Use arrowspace_tuner.tune() instead.
     """

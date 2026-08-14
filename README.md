@@ -15,6 +15,7 @@ ArrowSpace's retrieval quality depends on three graph-construction parameters:
 |---|---|
 | `eps` | Neighbourhood radius for graph edges |
 | `k` | Number of nearest neighbours per node |
+| `tau` | Search temperature (query-time only) |
 
 
 Setting these by hand is tedious and corpus-dependent. `arrowspace_tuner` uses [Optuna](https://optuna.org/) and a label-free spectral MRR proxy to find them automatically in minutes.
@@ -33,20 +34,28 @@ pip install arrowspace-tuner[report]
 
 ```python
 import numpy as np
-import arrowspace_tuner as arrowspace
+import arrowspace_tuner as at
+from arrowspace import ArrowSpaceBuilder
 
 embeddings = np.load("corpus.npy")   # shape (N, D) float64
 
 # One-liner: auto-discover eps, k, tau — runs in ~15 min on 50k corpus
-aspace, gl = arrowspace.optuna(embeddings)
+graph_params = at.tune(embeddings)
+aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
 # Search as normal
 results = aspace.search(query_embedding, gl, tau=0.8)
 ```
 
+> [!WARNING]
+> **Upgrading from v0.3.x?** `optuna()` is deprecated — use `tune()`.
+> `load_best_params()` is deprecated — use `load_graph_params()`.
+> `EpsTuner.fit()` now returns `dict` (graph_params), not `(aspace, gl)`.
+
 ## Power-user API
 
 ```python
+from arrowspace import ArrowSpaceBuilder
 from arrowspace_tuner import EpsTuner
 
 tuner = EpsTuner(
@@ -60,19 +69,22 @@ tuner = EpsTuner(
     storage   = "sqlite:///tune.db",   # resume interrupted runs
 )
 
-aspace, gl = tuner.fit(embeddings)
+graph_params = tuner.fit(embeddings)
+aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
-print(tuner.best_params)    # {"eps": 1.615, "k": 38, "tau": 0.114}
+print(tuner.best_params)    # {"eps": 1.615, "k": 38, "top_k": 19, "p": 2.0, "sigma": None}
+print(tuner.best_tau)      # 0.114  — query-time only, not in best_params
+print(tuner.graph_params)  # same as best_params, accessible without file I/O
 print(tuner.best_score)     # 2.138
 print(tuner.best_fiedler)   # 0.718  — graph connectivity health
 print(tuner.best_mrr_proxy) # 2.896  — retrieval coherence proxy
 
+# Search as normal
+results = aspace.search(query_embedding, gl, tau=tuner.best_tau)
+
 # Save CSV + HTML plots (requires [report] extra)
 tuner.save_report(out_dir="results")
 ```
-
-
-The final build after the study always uses the full corpus.
 
 ## Objective
 
