@@ -6,41 +6,53 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## Unreleased
+## [0.4.0] — 2026-08-14
 
 ### Breaking Changes
+
 - `EpsTuner.fit()` now returns `dict[str, Any]` (graph_params) instead of
   `tuple[ArrowSpace, GraphLaplacian]`. Callers must own the build step:
       graph_params = tuner.fit(embeddings)
       aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 - `api.optuna()` return type updated accordingly.
 - `EpsTuner._final_build()` removed (internal method, was not public API).
-
-### Added
-- Added `EpsTuner.graph_params` property: returns `best_params` after
-  fitting without requiring file I/O. Raises `RuntimeError` if called
-  before `.fit()`.
-- Added `arrowspace_tuner.tune(embeddings, *, tuner=None, **kwargs)` —
-  new primary one-liner entry point. Forwards all kwargs to `EpsTuner`
-  with zero parameter duplication. Supports `n_jobs`, `max_clusters`,
-  and `cluster_radius`, which were silently missing from `optuna()`.
-
-### Changed
-- `load_best_params()` renamed to `load_graph_params()`. The old name
-  is retained as a deprecated alias emitting `DeprecationWarning`.
-
-### Deprecated
-- `arrowspace_tuner.optuna()` is deprecated. It now emits
-  `DeprecationWarning` and delegates to `tune()`. Will be removed in the
-  next minor release.
-
-### Breaking Changes (behaviour)
 - `tune()` no longer defaults to `sample_n=5_000`. It inherits
   `EpsTuner`'s default (`sample_n=None`, i.e. full corpus every trial).
   Users relying on the implicit subsampling of `optuna()` must now pass
   `sample_n=5_000` explicitly to `tune()`.
 
+### Added
+
+- `EpsTuner.best_tau` — query-time-only attribute for the optimal `tau`
+  value, separated from `best_params`. Closes #26.
+- `EpsTuner.graph_params` — property returning `best_params` after
+  fitting without requiring file I/O. Raises `RuntimeError` before
+  `.fit()`. Closes #29.
+- `arrowspace_tuner.tune(embeddings, *, tuner=None, **kwargs)` — new
+  primary one-liner entry point. Forwards all kwargs to `EpsTuner`
+  with zero parameter duplication. Supports `n_jobs`, `max_clusters`,
+  and `cluster_radius`, which were silently missing from `optuna()`.
+  Closes #27.
+
+### Changed
+
+- `best_params` now contains only build-time parameters:
+  `{eps, k, top_k, p, sigma}`. `tau` is excluded (see `best_tau`).
+- `BuildParams.to_dict()` returns `"top_k"` instead of `"topk"`.
+  Closes #28.
+- `load_best_params()` renamed to `load_graph_params()`. The old name
+  is retained as a deprecated alias emitting `DeprecationWarning`.
+- `EpsTuner.__repr__` includes `best_tau=...` when fitted.
+
+### Deprecated
+
+- `arrowspace_tuner.optuna()` — emits `DeprecationWarning` and delegates
+  to `tune()`. Will be removed in the next minor release.
+- `EpsTuner.load_best_params()` — deprecated in favour of
+  `load_graph_params()`.
+
 ### Fixed
+
 - `load_graph_params()` (formerly `load_best_params()`) now returns
   `"top_k"` instead of `"topk"`, consistent with `EpsTuner.best_params`.
 
