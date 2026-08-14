@@ -46,6 +46,11 @@ aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 results = aspace.search(query_embedding, gl, tau=0.8)
 ```
 
+> [!WARNING]
+> **Upgrading from v0.3.x?** `optuna()` is deprecated — use `tune()`.
+> `load_best_params()` is deprecated — use `load_graph_params()`.
+> `EpsTuner.fit()` now returns `dict` (graph_params), not `(aspace, gl)`.
+
 ## Power-user API
 
 ```python
