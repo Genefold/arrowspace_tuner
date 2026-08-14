@@ -6,6 +6,7 @@ They require the arrowspace Rust wheel to be installed.
 """
 from __future__ import annotations
 
+import json
 import pathlib
 
 import numpy as np
@@ -331,3 +332,83 @@ class TestFitReturnsParams:
         result = optuna(embeddings_small, n_trials=3, seed=42, sample_n=None, n_probe=20)
         assert isinstance(result, dict)
         assert set(result.keys()) == {"eps", "k", "top_k", "p", "sigma"}
+
+
+# ── graph_params property ─────────────────────────────────────────────────────
+
+class TestGraphParamsProperty:
+    """Tests for the EpsTuner.graph_params property."""
+
+    def test_graph_params_returns_best_params(self, embeddings_small: np.ndarray) -> None:
+        tuner = _make_tuner()
+        tuner.fit(embeddings_small)
+        assert tuner.graph_params is tuner.best_params
+
+    def test_graph_params_keys(self, embeddings_small: np.ndarray) -> None:
+        tuner = _make_tuner()
+        tuner.fit(embeddings_small)
+        assert set(tuner.graph_params.keys()) == {"eps", "k", "top_k", "p", "sigma"}
+
+    def test_graph_params_raises_before_fit(self) -> None:
+        tuner = EpsTuner()
+        with pytest.raises(RuntimeError, match="Call .fit()"):
+            _ = tuner.graph_params
+
+    def test_graph_params_matches_fit_return(self, embeddings_small: np.ndarray) -> None:
+        tuner = _make_tuner()
+        fit_return = tuner.fit(embeddings_small)
+        assert tuner.graph_params == fit_return
+
+
+# ── load_graph_params / load_best_params deprecation ──────────────────────────
+
+class TestLoadGraphParams:
+    """Tests for disk-based graph-params loading."""
+
+    def _write_best_params_json(self, tuner: EpsTuner, report_dir: pathlib.Path) -> None:
+        """Write a minimal best_params.json for load_graph_params()."""
+        report_dir.mkdir(parents=True, exist_ok=True)
+        data = {
+            "params": {
+                "eps": 1.25,
+                "k": 14,
+            },
+            "score": 0.85,
+        }
+        json_path = report_dir / "best_params.json"
+        json_path.write_text(json.dumps(data), encoding="utf-8")
+        tuner._last_report_path = report_dir
+
+    def test_load_graph_params_returns_top_k(
+        self,
+        tmp_path: pathlib.Path,
+    ) -> None:
+        tuner = EpsTuner()
+        self._write_best_params_json(tuner, tmp_path / "report")
+
+        params = tuner.load_graph_params()
+        assert "top_k" in params
+        assert "topk" not in params
+        assert params["top_k"] == 7   # max(1, 14 // 2)
+
+    def test_load_best_params_emits_deprecation_warning(
+        self,
+        tmp_path: pathlib.Path,
+    ) -> None:
+        tuner = EpsTuner()
+        self._write_best_params_json(tuner, tmp_path / "report")
+
+        with pytest.warns(DeprecationWarning, match="load_graph_params"):
+            tuner.load_best_params()
+
+    def test_load_best_params_delegates(
+        self,
+        tmp_path: pathlib.Path,
+    ) -> None:
+        tuner = EpsTuner()
+        self._write_best_params_json(tuner, tmp_path / "report")
+
+        with pytest.warns(DeprecationWarning):
+            deprecated = tuner.load_best_params()
+        fresh = tuner.load_graph_params()
+        assert deprecated == fresh

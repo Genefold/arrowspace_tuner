@@ -16,9 +16,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `api.optuna()` return type updated accordingly.
 - `EpsTuner._final_build()` removed (internal method, was not public API).
 
+### Added
+- Added `EpsTuner.graph_params` property: returns `best_params` after
+  fitting without requiring file I/O. Raises `RuntimeError` if called
+  before `.fit()`.
+
+### Changed
+- `load_best_params()` renamed to `load_graph_params()`. The old name
+  is retained as a deprecated alias emitting `DeprecationWarning`.
+
 ### Fixed
-- `load_best_params()` now returns `"top_k"` instead of `"topk"` to match
-  `best_params` output.
+- `load_graph_params()` (formerly `load_best_params()`) now returns
+  `"top_k"` instead of `"topk"`, consistent with `EpsTuner.best_params`.
 
 ---
 
