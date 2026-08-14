@@ -24,15 +24,21 @@ class TestBuildParams:
     def test_to_dict_keys(self) -> None:
         p = BuildParams(eps=1.0, k=10, topk=5)
         d = p.to_dict()
-        assert set(d.keys()) == {"eps", "k", "topk", "p", "sigma"}
+        assert set(d.keys()) == {"eps", "k", "top_k", "p", "sigma"}
 
     def test_to_dict_values(self) -> None:
         p = BuildParams(eps=1.5, k=8, topk=4, p=2.0, sigma=None)
         d = p.to_dict()
         assert d["eps"]   == 1.5
         assert d["k"]     == 8
-        assert d["topk"]  == 4
+        assert d["top_k"] == 4
         assert d["sigma"] is None
+
+    def test_to_dict_top_k_value(self) -> None:
+        """top_k value in dict must equal the topk attribute."""
+        p = BuildParams(eps=1.0, k=10, topk=5)
+        d = p.to_dict()
+        assert d["top_k"] == p.topk == 5
 
     def test_topk_default_is_half_k(self) -> None:
         p = BuildParams(k=12)
