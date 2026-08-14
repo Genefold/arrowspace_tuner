@@ -472,7 +472,7 @@ class EpsTuner:
         """
         Deprecated. Use load_graph_params() instead.
 
-        .. deprecated::
+        .. deprecated:: 0.4.0
             load_best_params() is deprecated and will be removed in a future
             release. Use load_graph_params(out_dir) for disk-based loading, or
             the .graph_params property for in-session access after .fit().
