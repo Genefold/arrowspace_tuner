@@ -8,6 +8,9 @@ Typical usage:
     tuner = EpsTuner(n_trials=15)
     graph_params = tuner.fit(embeddings)
 
+    # graph_params is also accessible as a property after fitting
+    assert tuner.graph_params is graph_params
+
     # caller owns the build step
     aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
@@ -103,6 +106,9 @@ class EpsTuner:
         {"eps": float, "k": int, "top_k": int, "p": float, "sigma": None}.
         Ready to be passed directly to ArrowSpaceBuilder.build().
         Note: tau is NOT included here — see best_tau.
+    graph_params : dict[str, Any]
+        Convenience property returning the same dict as ``best_params``.
+        Raises ``RuntimeError`` if called before ``.fit()``.
     best_tau : float
         Optimal search temperature found during tuning. **Query-time** param.
         Use as: aspace.search(query, gl, tau=tuner.best_tau)
@@ -163,9 +169,33 @@ class EpsTuner:
         self.best_mrr_proxy:  float | None          = None
         self.best_tau:        float | None          = None   # query-time param, NOT in best_params
         self.study:           optuna.Study | None   = None
-        self._last_report_path: Path | None = None  
+        self._last_report_path: Path | None = None
 
     # ── public interface ─────────────────────────────────────────────────────────
+
+    @property
+    def graph_params(self) -> dict[str, Any]:
+        """
+        Optimised graph parameters ready for ArrowSpaceBuilder.build().
+
+        This is a read-only view of ``best_params``: the same dict object is
+        returned, not a copy. It is not mutated after ``.fit()`` returns.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"eps": float, "k": int, "top_k": int, "p": float, "sigma": None}``
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``.fit()``.
+        """
+        if self.best_params is None:
+            raise RuntimeError(
+                "Call .fit() before accessing .graph_params."
+            )
+        return self.best_params
 
     def fit(
         self,
@@ -373,23 +403,24 @@ class EpsTuner:
         return path
 
 
-    def load_best_params(self, out_dir: str = "results") -> dict[str, Any]:
+    def load_graph_params(self, out_dir: str = "results") -> dict[str, Any]:
         """
-        Load best hyperparameters from the most recently saved JSON report.
+        Load optimised graph parameters from the most recently saved JSON report.
 
-        If called in the same session after .save_report(), uses that exact
-        path directly. Otherwise searches the disk for the latest timestamped
-        run under out_dir/<study_name>/.
+        Use this for cross-session reuse: loading parameters from a previous
+        run without re-fitting. For in-session use after ``.fit()``, prefer the
+        ``.graph_params`` property instead.
 
         Parameters
         ----------
         out_dir : str
-            Root results directory. Ignored when _last_report_path is set.
+            Root results directory. Ignored when a report was saved in the
+            current session (uses that path directly).
 
         Returns
         -------
-        dict with keys: eps (float), k (int), top_k (int), p (float),
-        sigma (None).
+        dict[str, Any]
+            ``{"eps": float, "k": int, "top_k": int, "p": float, "sigma": None}``
 
         Raises
         ------
@@ -398,7 +429,6 @@ class EpsTuner:
         ValueError
             If best_params.json is missing required keys.
         """
-
         if self._last_report_path is not None:
             report_dir = self._last_report_path
         else:
@@ -410,7 +440,7 @@ class EpsTuner:
                 raise FileNotFoundError(f"No timestamped runs found in {study_dir}")
             report_dir = subdirs[-1]  # YYYYMMDD_HHMMSS sorts chronologically
 
-        # 2. Read the JSON
+        # Read the JSON
         json_path = report_dir / "best_params.json"
         if not json_path.exists():
             raise FileNotFoundError(
@@ -419,11 +449,10 @@ class EpsTuner:
         with open(json_path, encoding="utf-8") as f:
             data = json.load(f)
 
-        # 3. params are nested under "params" key — not at the top level
+        # params are nested under "params" key — not at the top level
         params = data.get("params", {})
         eps = params.get("eps")
         k   = params.get("k")
-
 
         if eps is None or k is None:
             raise ValueError(
@@ -439,6 +468,22 @@ class EpsTuner:
             "sigma": None,
         }
 
+    def load_best_params(self, out_dir: str = "results") -> dict[str, Any]:
+        """
+        Deprecated. Use load_graph_params() instead.
+
+        .. deprecated::
+            load_best_params() is deprecated and will be removed in a future
+            release. Use load_graph_params(out_dir) for disk-based loading, or
+            the .graph_params property for in-session access after .fit().
+        """
+        import warnings
+        warnings.warn(
+            "load_best_params() is deprecated, use load_graph_params() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.load_graph_params(out_dir=out_dir)
 
     def _validate(self, embeddings: np.ndarray) -> np.ndarray:
         """
