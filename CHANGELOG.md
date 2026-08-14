@@ -6,6 +6,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## Unreleased
+
+### Breaking Changes
+- `EpsTuner.fit()` now returns `dict[str, Any]` (graph_params) instead of
+  `tuple[ArrowSpace, GraphLaplacian]`. Callers must own the build step:
+      graph_params = tuner.fit(embeddings)
+      aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
+- `api.optuna()` return type updated accordingly.
+- `EpsTuner._final_build()` removed (internal method, was not public API).
+
+### Fixed
+- `load_best_params()` now returns `"top_k"` instead of `"topk"` to match
+  `best_params` output.
+
+---
+
 ## [0.3.0] — 2026-05-07
 
 ### Fixed

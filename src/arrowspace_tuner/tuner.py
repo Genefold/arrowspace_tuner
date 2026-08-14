@@ -2,10 +2,14 @@
 tuner.py — EpsTuner: the main public class for hyperparameter discovery.
 
 Typical usage:
+    from arrowspace import ArrowSpaceBuilder
     from arrowspace_tuner import EpsTuner
 
     tuner = EpsTuner(n_trials=15)
-    aspace, gl = tuner.fit(embeddings)
+    graph_params = tuner.fit(embeddings)
+
+    # caller owns the build step
+    aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
     # inspect results
     print(tuner.best_params)   # {"eps": 1.2, "k": 14, "top_k": 7, "p": 2.0, "sigma": None}
@@ -26,7 +30,7 @@ from typing import Any
 import numpy as np
 import optuna
 
-from .core import BuildParams, StudyConfig, make_objective
+from .core import StudyConfig, make_objective
 from .core.config import _DEFAULT_N_TRIALS
 
 logger = logging.getLogger(__name__)
@@ -166,9 +170,9 @@ class EpsTuner:
     def fit(
         self,
         embeddings: np.ndarray,
-    ) -> tuple[object, object]:
+    ) -> dict[str, Any]:
         """
-        Run hyperparameter search and return the best (aspace, gl) pair.
+        Run hyperparameter search and return the best graph parameters.
 
         Parameters
         ----------
@@ -178,23 +182,19 @@ class EpsTuner:
 
         Returns
         -------
-        aspace : ArrowSpace
-            ArrowSpace index built with the best hyperparameters found.
-        gl : GraphLaplacian
-            Corresponding graph Laplacian.
+        dict[str, Any]
+            Optimised **build-time** graph parameters:
+            {"eps": float, "k": int, "top_k": int, "p": float, "sigma": None}.
+            Ready to be passed directly to ArrowSpaceBuilder.build().
+            Note: tau is NOT included here — see ``best_tau``.
 
         Attributes (available after .fit())
         ------------------------------------
         best_params : dict[str, Any]
-            Optimised **build-time** graph parameters:
-            {"eps": float, "k": int, "top_k": int, "p": float, "sigma": None}.
-            Ready to be passed directly to ArrowSpaceBuilder.build().
-            Note: tau is NOT included here — see best_tau.
-
+            Same dict as the return value (identity).
         best_tau : float
             Optimal search temperature found during tuning. **Query-time** param.
             Use as: aspace.search(query, gl, tau=tuner.best_tau)
-
         best_score : float
             Best composite objective score achieved.
         best_fiedler : float
@@ -340,16 +340,7 @@ class EpsTuner:
             self.best_tau,
         )
 
-        # ── final build: use cached objects if available (#9) ──────────────────
-        # When sample_n=None every trial built on the full corpus, so the
-        # best trial's aspace+gl are already correct. Skip _final_build.
-        if best_cache:
-            logger.info(
-                "Returning cached best-trial objects (skipping redundant build)"
-            )
-            return best_cache["aspace"], best_cache["gl"]
-
-        return self._final_build(embeddings)
+        return self.best_params
 
     def save_report(self, out_dir: str = "results") -> Path:
         """
@@ -397,8 +388,8 @@ class EpsTuner:
 
         Returns
         -------
-        dict with keys: eps (float), k (int), tau (float), topk (int),
-        p (float), sigma (None).
+        dict with keys: eps (float), k (int), top_k (int), p (float),
+        sigma (None).
 
         Raises
         ------
@@ -443,7 +434,7 @@ class EpsTuner:
         return {
             "eps":   float(eps),
             "k":     int(k),
-            "topk":  max(1, int(k) // 2),
+            "top_k": max(1, int(k) // 2),
             "p":     2.0,
             "sigma": None,
         }
@@ -469,57 +460,6 @@ class EpsTuner:
             )
             embeddings = embeddings.astype(np.float64)
         return embeddings
-
-    def _final_build(self, embeddings: np.ndarray) -> tuple[object, object]:
-        """
-        Rebuild ArrowSpace once with the best params found by the study.
-        This is the (aspace, gl) pair returned to the user.
-        Only called when sample_n is set (subsample path), because in that
-        case the trial objects were built on a subset, not the full corpus.
-
-        Raises
-        ------
-        RuntimeError
-            If called before best_params is populated (i.e. before fit()).
-        """
-        from arrowspace import ArrowSpaceBuilder
-
-        if self.best_params is None:
-            raise RuntimeError(
-                "_final_build called before best_params was set. "
-                "This is an internal error — please report it."
-            )
-
-        params = BuildParams(
-            eps  = self.best_params["eps"],
-            k    = self.best_params["k"],
-            topk = self.best_params["top_k"],
-        )
-
-        embeddings = np.ascontiguousarray(embeddings, dtype=np.float64)
-
-        # Build the ArrowSpace index with the best params.
-        # max_clusters and cluster_radius are optional Rust builder kwargs —
-        # they must only be chained when explicitly set (not None), because
-        # the Rust FFI cannot accept a Python None as an integer/float.
-        builder = (
-            ArrowSpaceBuilder()
-            .with_dims_reduction(enabled=False, eps=None)
-        )
-
-        if self._cfg.max_clusters is not None:
-            builder = builder.with_cluster_max_clusters(self._cfg.max_clusters)
-
-        if self._cfg.cluster_radius is not None:
-            builder = builder.with_cluster_radius(self._cfg.cluster_radius)
-
-        aspace, gl = builder.build(params.to_dict(), embeddings)
-
-        logger.info(
-            "Final build complete | eps=%.5f k=%d topk=%d",
-            params.eps, params.k, params.topk,
-        )
-        return aspace, gl
 
     def __repr__(self) -> str:
         fitted = self.best_params is not None
