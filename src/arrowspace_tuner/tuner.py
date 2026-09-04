@@ -15,7 +15,7 @@ Typical usage:
     aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
     # inspect results
-    print(tuner.best_params)   # {"eps": 1.2, "k": 14, "top_k": 7, "p": 2.0, "sigma": None}
+    print(tuner.best_params)   # {"eps": 1.2, "k": 14, "topk": 7, "p": 2.0, "sigma": None}
     print(tuner.best_tau)      # 0.8  — use at search time: aspace.search(q, gl, tau=tuner.best_tau)
     print(tuner.best_score)
 
@@ -103,7 +103,7 @@ class EpsTuner:
     ------------------------------------
     best_params : dict[str, Any]
         Optimised **build-time** graph parameters:
-        {"eps": float, "k": int, "top_k": int, "p": float, "sigma": None}.
+        {"eps": float, "k": int, "topk": int, "p": float, "sigma": None}.
         Ready to be passed directly to ArrowSpaceBuilder.build().
         Note: tau is NOT included here — see best_tau.
     graph_params : dict[str, Any]
@@ -184,7 +184,7 @@ class EpsTuner:
         Returns
         -------
         dict[str, Any]
-            ``{"eps": float, "k": int, "top_k": int, "p": float, "sigma": None}``
+            ``{"eps": float, "k": int, "topk": int, "p": float, "sigma": None}``
 
         Raises
         ------
@@ -214,7 +214,7 @@ class EpsTuner:
         -------
         dict[str, Any]
             Optimised **build-time** graph parameters:
-            {"eps": float, "k": int, "top_k": int, "p": float, "sigma": None}.
+            {"eps": float, "k": int, "topk": int, "p": float, "sigma": None}.
             Ready to be passed directly to ArrowSpaceBuilder.build().
             Note: tau is NOT included here — see ``best_tau``.
 
@@ -333,6 +333,22 @@ class EpsTuner:
             if t.state == optuna.trial.TrialState.COMPLETE
         ]
         if not completed:
+            # If trials failed with exceptions (not statistical pruning),
+            # surface the actual errors instead of the generic corpus advice.
+            build_errors = sorted({
+                t.user_attrs["build_error"]
+                for t in study.trials
+                if "build_error" in t.user_attrs
+            })
+            detail = ""
+            if build_errors:
+                shown = build_errors[:3]
+                detail = (
+                    f" The trials failed with {len(build_errors)} distinct "
+                    f"exception(s) — these are build errors, not corpus/"
+                    f"bounds problems:\n"
+                    + "\n".join(f"  - {e}" for e in shown)
+                )
             raise RuntimeError(
                 "All Optuna trials were pruned — no valid graph was built. "
                 f"n_trials={cfg.n_trials}: the MedianPruner requires at least "
@@ -342,6 +358,7 @@ class EpsTuner:
                 f"Current bounds: eps=[{cfg.eps_low}, {cfg.eps_high}]. "
                 "Try widening eps_low/eps_high, reducing k_high, or increasing "
                 "sample_n."
+                + detail
             )
 
         # ── store results ─────────────────────────────────────────────────────
@@ -353,7 +370,7 @@ class EpsTuner:
         self.best_params     = {
             "eps":   raw_params["eps"],
             "k":     raw_params["k"],
-            "top_k": max(1, raw_params["k"] // 2),
+            "topk":  max(1, raw_params["k"] // 2),
             "p":     2.0,
             "sigma": None,
         }
@@ -420,7 +437,7 @@ class EpsTuner:
         Returns
         -------
         dict[str, Any]
-            ``{"eps": float, "k": int, "top_k": int, "p": float, "sigma": None}``
+            ``{"eps": float, "k": int, "topk": int, "p": float, "sigma": None}``
 
         Raises
         ------
@@ -463,7 +480,7 @@ class EpsTuner:
         return {
             "eps":   float(eps),
             "k":     int(k),
-            "top_k": max(1, int(k) // 2),
+            "topk":  max(1, int(k) // 2),
             "p":     2.0,
             "sigma": None,
         }

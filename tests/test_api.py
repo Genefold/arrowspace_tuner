@@ -19,7 +19,7 @@ class TestTune:
     def test_minimal_usage(self, embeddings_small: np.ndarray) -> None:
         graph_params = at.tune(embeddings_small, n_trials=3, n_probe=20)
         assert isinstance(graph_params, dict)
-        assert set(graph_params.keys()) == {"eps", "k", "top_k", "p", "sigma"}
+        assert set(graph_params.keys()) == {"eps", "k", "topk", "p", "sigma"}
 
     def test_kwargs_forwarded(self, embeddings_small: np.ndarray) -> None:
         # n_trials and seed must reach EpsTuner without raising

@@ -6,6 +6,8 @@ They require the arrowspace Rust wheel to be installed.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import optuna
 
@@ -24,21 +26,44 @@ class TestBuildParams:
     def test_to_dict_keys(self) -> None:
         p = BuildParams(eps=1.0, k=10, topk=5)
         d = p.to_dict()
-        assert set(d.keys()) == {"eps", "k", "top_k", "p", "sigma"}
+        assert set(d.keys()) == {"eps", "k", "topk", "p", "sigma"}
 
     def test_to_dict_values(self) -> None:
         p = BuildParams(eps=1.5, k=8, topk=4, p=2.0, sigma=None)
         d = p.to_dict()
         assert d["eps"]   == 1.5
         assert d["k"]     == 8
-        assert d["top_k"] == 4
+        assert d["topk"] == 4
         assert d["sigma"] is None
 
-    def test_to_dict_top_k_value(self) -> None:
-        """top_k value in dict must equal the topk attribute."""
+    def test_to_dict_topk_value(self) -> None:
+        """topk value in dict must equal the topk attribute."""
         p = BuildParams(eps=1.0, k=10, topk=5)
         d = p.to_dict()
-        assert d["top_k"] == p.topk == 5
+        assert d["topk"] == p.topk == 5
+
+    def test_to_dict_sigma_value_passthrough(self) -> None:
+        """A set sigma (not None) must pass through unchanged."""
+        p = BuildParams(eps=1.0, k=10, topk=5, sigma=1.5)
+        assert p.to_dict()["sigma"] == 1.5
+
+    def test_to_dict_matches_bindings_schema(self) -> None:
+        """
+        Guard against key-schema drift with pyarrowspace (#38): to_dict()
+        must emit exactly the bindings-native keys. pyarrowspace >= 0.27
+        rejects unknown keys, which pruned every Optuna trial in 0.4.0.
+        """
+        d = BuildParams().to_dict()
+        assert set(d.keys()) == {"eps", "k", "topk", "p", "sigma"}
+
+    def test_to_dict_round_trip_bindings(self, embeddings_small: np.ndarray) -> None:
+        """The dict must be accepted verbatim by ArrowSpaceBuilder.build()."""
+        from arrowspace import ArrowSpaceBuilder
+
+        params = BuildParams(eps=1.5, k=8, topk=4)
+        aspace, gl = ArrowSpaceBuilder().build(params.to_dict(), embeddings_small)
+        assert gl is not None
+        assert len(aspace.lambdas()) == len(embeddings_small)
 
     def test_topk_default_is_half_k(self) -> None:
         p = BuildParams(k=12)
@@ -245,3 +270,225 @@ class TestMakeObjective:
                 f"Expected pruned or zero score on flat embeddings, "
                 f"got state={t.state} value={t.value}"
             )
+
+    # ── None search rows (pyarrowspace >= 0.26.7, issue #37) ──────────────────
+
+    @staticmethod
+    def _stub_build_and_score(monkeypatch: object, fake_aspace: object) -> None:
+        """Patch core.objective.build_and_score to return a fake aspace."""
+        import arrowspace_tuner.core.objective as obj_mod
+
+        def fake_build_and_score(
+            embeddings: np.ndarray,
+            params: object,
+            trial: optuna.Trial | None = None,
+        ) -> tuple[float, float, object, object]:
+            return 0.5, 0.1, fake_aspace, object()
+
+        monkeypatch.setattr(obj_mod, "build_and_score", fake_build_and_score)
+
+    def test_all_none_search_rows_pruned_not_crashed(
+        self,
+        embeddings_small: np.ndarray,  # type: ignore[name-defined]  # noqa: F821
+        fast_study_config: StudyConfig,  # type: ignore[name-defined]  # noqa: F821
+        monkeypatch: object,
+    ) -> None:
+        """
+        pyarrowspace >= 0.26.7 returns None rows from search_batch for
+        probes with no hits (#37). The objective must prune via the
+        row_widths guard, not crash with TypeError before it.
+        """
+        class FakeAspace:
+            def lambdas(self) -> list[float]:
+                return list(np.linspace(0.1, 0.9, len(embeddings_small)))
+
+            def search_batch(self, queries: object, gl: object, tau: float) -> list[Any]:
+                return [None] * len(queries)
+
+        self._stub_build_and_score(monkeypatch, FakeAspace())
+        study = optuna.create_study(direction="maximize")
+        obj, _ = make_objective(embeddings_small, fast_study_config)
+        study.optimize(obj, n_trials=1)
+        assert study.trials[0].state == optuna.trial.TrialState.PRUNED
+
+    def test_mixed_none_search_rows_completes(
+        self,
+        embeddings_small: np.ndarray,  # type: ignore[name-defined]  # noqa: F821
+        fast_study_config: StudyConfig,  # type: ignore[name-defined]  # noqa: F821
+        monkeypatch: object,
+    ) -> None:
+        """Mixed valid/None/[] rows: valid rows still count toward the MRR."""
+        n_items = len(embeddings_small)
+
+        class FakeAspace:
+            def lambdas(self) -> list[float]:
+                return list(np.linspace(0.1, 0.9, n_items))
+
+            def search_batch(
+                self, queries: object, gl: object, tau: float
+            ) -> list[Any]:
+                out = []
+                for r in range(len(queries)):
+                    if r % 2 == 0:
+                        out.append([
+                            (i * 7 % n_items, 1.0 / (j + 1))
+                            for j, i in enumerate(range(3))
+                        ])
+                    elif r % 4 == 1:
+                        out.append(None)
+                    else:
+                        out.append([])
+                return out
+
+        self._stub_build_and_score(monkeypatch, FakeAspace())
+        study = optuna.create_study(direction="maximize")
+        obj, _ = make_objective(embeddings_small, fast_study_config)
+        study.optimize(obj, n_trials=1)
+        assert study.trials[0].state == optuna.trial.TrialState.COMPLETE
+        assert study.trials[0].value > 0.0
+
+    def test_none_batch_results_pruned(
+        self,
+        embeddings_small: np.ndarray,  # type: ignore[name-defined]  # noqa: F821
+        fast_study_config: StudyConfig,  # type: ignore[name-defined]  # noqa: F821
+        monkeypatch: object,
+    ) -> None:
+        """A None whole-batch return must prune via the `or []` guard, not crash."""
+        class FakeAspace:
+            def lambdas(self) -> list[float]:
+                return list(np.linspace(0.1, 0.9, len(embeddings_small)))
+
+            def search_batch(
+                self, queries: object, gl: object, tau: float
+            ) -> object:
+                return None
+
+        self._stub_build_and_score(monkeypatch, FakeAspace())
+        study = optuna.create_study(direction="maximize")
+        obj, _ = make_objective(embeddings_small, fast_study_config)
+        study.optimize(obj, n_trials=1)
+        assert study.trials[0].state == optuna.trial.TrialState.PRUNED
+
+    def test_build_failure_sets_build_error_attr(
+        self,
+        embeddings_small: np.ndarray,  # type: ignore[name-defined]  # noqa: F821
+        fast_study_config: StudyConfig,  # type: ignore[name-defined]  # noqa: F821
+    ) -> None:
+        """A .build() exception must be persisted on the pruned trial (#38)."""
+        import unittest.mock as mock
+
+        import arrowspace
+
+        with mock.patch.object(
+            arrowspace.ArrowSpaceBuilder, "build",
+            side_effect=ValueError("boom"),
+        ):
+            study = optuna.create_study(direction="maximize")
+            obj, _ = make_objective(embeddings_small, fast_study_config)
+            study.optimize(obj, n_trials=1)
+
+        t = study.trials[0]
+        assert t.state == optuna.trial.TrialState.PRUNED
+        assert t.user_attrs["build_error"] == "ValueError: boom"
+
+    def test_search_batch_failure_sets_build_error_attr(
+        self,
+        embeddings_small: np.ndarray,  # type: ignore[name-defined]  # noqa: F821
+        fast_study_config: StudyConfig,  # type: ignore[name-defined]  # noqa: F821
+        monkeypatch: object,
+    ) -> None:
+        """A search_batch exception must be persisted on the pruned trial (#38)."""
+        class FakeAspace:
+            def lambdas(self) -> list[float]:
+                return list(np.linspace(0.1, 0.9, len(embeddings_small)))
+
+            def search_batch(
+                self, queries: object, gl: object, tau: float
+            ) -> object:
+                raise ValueError("search blew up")
+
+        self._stub_build_and_score(monkeypatch, FakeAspace())
+        study = optuna.create_study(direction="maximize")
+        obj, _ = make_objective(embeddings_small, fast_study_config)
+        study.optimize(obj, n_trials=1)
+
+        t = study.trials[0]
+        assert t.state == optuna.trial.TrialState.PRUNED
+        assert t.user_attrs["build_error"] == "ValueError: search blew up"
+
+    # ── zero-lambda probe anchors (issue #24) ─────────────────────────────────
+
+    @staticmethod
+    def _make_zero_lambda_aspace(
+        embeddings: np.ndarray, zero_predicate: object
+    ) -> object:
+        """
+        Fake aspace mimicking pyarrowspace search_batch: raises ValueError
+        when a query anchor sits on a zero-lambda item (issue #24), maps
+        each query back to its corpus index by value comparison.
+        """
+        zero_set = {
+            i for i in range(len(embeddings)) if zero_predicate(i)
+        }
+
+        class FakeAspace:
+            def lambdas(self) -> list[float]:
+                return [
+                    0.0 if i in zero_set else 0.1 + i * 0.001
+                    for i in range(len(embeddings))
+                ]
+
+            def search_batch(self, queries: object, gl: object, tau: float) -> list[Any]:
+                out = []
+                for q in queries:
+                    for j in range(len(embeddings)):
+                        if np.allclose(q, embeddings[j]):
+                            if j in zero_set:
+                                raise ValueError(f"Lambda is zero for query {j}")
+                            out.append(
+                                [(k, 1.0 / (r + 1)) for r, k in enumerate(range(3))]
+                            )
+                            break
+                    else:
+                        out.append(None)
+                return out
+
+        return FakeAspace()
+
+    def test_zero_lambda_anchors_filtered_not_failed(
+        self,
+        embeddings_small: np.ndarray,  # type: ignore[name-defined]  # noqa: F821
+        fast_study_config: StudyConfig,  # type: ignore[name-defined]  # noqa: F821
+        monkeypatch: object,
+    ) -> None:
+        """
+        Half the corpus has zero lambda (isolated nodes). search_batch raises
+        for those anchors (#24); the objective must filter them out and
+        complete the trial, not prune it.
+        """
+        fake = self._make_zero_lambda_aspace(
+            embeddings_small, lambda i: i % 2 == 0
+        )
+        self._stub_build_and_score(monkeypatch, fake)
+        study = optuna.create_study(direction="maximize")
+        obj, _ = make_objective(embeddings_small, fast_study_config)
+        study.optimize(obj, n_trials=1)
+        assert study.trials[0].state == optuna.trial.TrialState.COMPLETE
+        assert study.trials[0].value > 0.0
+        # n_probe attr must reflect the FILTERED anchor count (#24)
+        n_probe_used = study.trials[0].user_attrs["n_probe"]
+        assert 0 < n_probe_used < fast_study_config.n_probe
+
+    def test_all_zero_lambdas_pruned(
+        self,
+        embeddings_small: np.ndarray,  # type: ignore[name-defined]  # noqa: F821
+        fast_study_config: StudyConfig,  # type: ignore[name-defined]  # noqa: F821
+        monkeypatch: object,
+    ) -> None:
+        """Every item has zero lambda — no usable anchors — must prune."""
+        fake = self._make_zero_lambda_aspace(embeddings_small, lambda i: True)
+        self._stub_build_and_score(monkeypatch, fake)
+        study = optuna.create_study(direction="maximize")
+        obj, _ = make_objective(embeddings_small, fast_study_config)
+        study.optimize(obj, n_trials=1)
+        assert study.trials[0].state == optuna.trial.TrialState.PRUNED
