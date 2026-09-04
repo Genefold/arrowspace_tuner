@@ -6,6 +6,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.1] — 2026-09-04
+
+### Fixed
+
+- All graph-params dicts (`BuildParams.to_dict()`, `EpsTuner.best_params`,
+  `EpsTuner.graph_params`, `EpsTuner.load_graph_params()`) emit the
+  bindings-native `"topk"` key again. v0.4.0 renamed it to `"top_k"`,
+  which pyarrowspace's `build()` validation rejects (`unknown key(s)
+  'top_k'`), so every Optuna trial was pruned. Closes #38.
+- When every trial is pruned by an exception (not statistical pruning),
+  `EpsTuner.fit()` now records the exception on each pruned trial and
+  surfaces the distinct build errors in the raised `RuntimeError`,
+  instead of blaming the corpus size / eps bounds.
+- `None` rows returned by `search_batch()` (pyarrowspace >= 0.26.7) no
+  longer crash the objective with `TypeError` before the all-zero
+  row_widths guard; `None` rows are treated as empty and the trial is
+  pruned. Closes #37, #24.
+- Probe anchors with zero |λ| (isolated items) are filtered out before
+  `search_batch()` instead of triggering the bindings' `Lambda is zero
+  for query N` error, which pruned every trial on corpora containing
+  isolated nodes. Trials with at least one usable anchor now complete.
+  Closes #24.
+
+---
+
 ## [0.4.0] — 2026-08-14
 
 ### Breaking Changes
