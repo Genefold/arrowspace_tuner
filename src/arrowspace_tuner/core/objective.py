@@ -135,6 +135,12 @@ def build_and_score(
             params.eps, params.k, exc,
         )
         if trial:
+            # Persist the exception so fit() can surface it if ALL trials
+            # prune (otherwise the root cause is swallowed by the generic
+            # "corpus too small" RuntimeError).
+            trial.set_user_attr(
+                "build_error", f"{type(exc).__name__}: {exc}"
+            )
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
 
@@ -300,15 +306,25 @@ def make_objective(
             )
             return 0.0
 
-        # ── 4. fixed probe anchors ────────────────────────────────────────────
-        probe_idx  = probe_idx_fixed
+        # ── 4. fixed probe anchors, filtered to non-zero lambda (#24) ──────────
+        # search_batch() raises "Lambda is zero for query N" when a probe
+        # anchor sits on a zero-lambda item (isolated node in the graph).
+        # Drop those anchors instead of discarding the whole trial.
+        if aspace is None or gl is None:
+            raise optuna.TrialPruned()
+        lambdas = np.array(aspace.lambdas(), dtype=np.float64)
+        probe_idx = probe_idx_fixed[np.abs(lambdas[probe_idx_fixed]) > 1e-12]
+        if len(probe_idx) == 0:
+            logger.warning(
+                "Trial %d: every probe anchor has zero lambda — pruning",
+                trial.number,
+            )
+            raise optuna.TrialPruned()
         probe_embs = np.ascontiguousarray(
             emb_trial[probe_idx], dtype=np.float64
         )
 
         # ── 5. k-NN retrieval via search_batch ────────────────────────────────
-        if aspace is None or gl is None:
-            raise optuna.TrialPruned()
         try:
             batch_results = aspace.search_batch(probe_embs, gl, tau)
         except Exception as exc:
@@ -316,13 +332,21 @@ def make_objective(
                 "Trial %d search_batch failed (eps=%.4f k=%d tau=%.3f): %s",
                 trial.number, params.eps, params.k, tau, exc,
             )
+            trial.set_user_attr(
+                "build_error", f"{type(exc).__name__}: {exc}"
+            )
             raise optuna.TrialPruned()
 
         # ── 6. build k-NN index table ─────────────────────────────────────────
         P = len(probe_idx)
         knn_indices = np.zeros((P, K_EVAL), dtype=np.int64)
         row_widths  = np.zeros(P, dtype=np.int64)
-        for row, results in enumerate(batch_results):
+        for row, results in enumerate(batch_results or []):
+            if not results:
+                # pyarrowspace >= 0.26.7 returns None rows for probes with
+                # no hits (#37) — leave width 0 and let the all-zero guard
+                # below prune. Previously this crashed with TypeError.
+                continue
             hits = results[:K_EVAL]
             w    = len(hits)
             row_widths[row] = w
@@ -341,7 +365,7 @@ def make_objective(
             raise optuna.TrialPruned()
 
         # ── 7. spectral MRR-Top0 proxy (vectorised) ───────────────────────────
-        lambdas      = np.array(aspace.lambdas(), dtype=np.float64)
+        # lambdas was fetched at step 4 for anchor filtering — reuse it.
         sigma        = float(np.std(lambdas)) + 1e-9
         lambda_probe = lambdas[probe_idx]
 

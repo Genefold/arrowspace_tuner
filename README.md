@@ -70,7 +70,7 @@ tuner = EpsTuner(
 graph_params = tuner.fit(embeddings)
 aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
-print(tuner.best_params)    # {"eps": 1.615, "k": 38, "top_k": 19, "p": ..., "sigma": ...}
+print(tuner.best_params)    # {"eps": 1.615, "k": 38, "topk": 19, "p": ..., "sigma": ...}
 print(tuner.best_tau)       # 0.114  — query-time only, not in best_params
 print(tuner.best_score)     # 2.138
 print(tuner.best_fiedler)   # 0.718  — graph connectivity health

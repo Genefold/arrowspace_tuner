@@ -58,8 +58,8 @@ class BuildParams:
     def to_dict(self) -> dict[str, Any]:
         """Return graph_params dict expected by ArrowSpaceBuilder.build().
 
-        Note: the internal attribute is ``topk`` but the public dict key is
-        ``top_k`` (snake_case, consistent with EpsTuner.best_params output).
+        The dict uses the bindings-native keys and can be passed verbatim
+        to ``ArrowSpaceBuilder.build()``.
 
         Note: tau is intentionally absent — it is a query-time parameter
         and must NOT be passed to the builder.
@@ -67,7 +67,7 @@ class BuildParams:
         return {
             "eps":   self.eps,
             "k":     self.k,
-            "top_k": self.topk,   # key renamed: topk -> top_k
+            "topk":  self.topk,
             "p":     self.p,
             "sigma": self.sigma,
         }

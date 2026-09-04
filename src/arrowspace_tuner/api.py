@@ -42,7 +42,7 @@ def tune(
     -------
     dict[str, Any]
         Optimised graph parameters:
-        {"eps": float, "k": int, "top_k": int, "p": float, "sigma": None}.
+        {"eps": float, "k": int, "topk": int, "p": float, "sigma": None}.
         Ready to be passed to ArrowSpaceBuilder.build().
 
     Notes
