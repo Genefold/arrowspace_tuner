@@ -23,6 +23,7 @@ tuner = EpsTuner(
 )
 
 graph_params = tuner.fit(embeddings)
+# graph_params is build-time only: {"eps", "k", "topk", "p", "sigma"}.
 best_tau = tuner.best_tau  # query-time only — not in graph_params
 
 # The caller owns the build step.

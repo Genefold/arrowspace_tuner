@@ -1,8 +1,8 @@
 """
 test_release_0_4_2_compatibility.py — v0.4.2 release regression suite.
 
-Proves, on the installed ArrowSpace (run under
-``uv run --with "arrowspace==<version>" pytest`` for the full matrix):
+Proves, on the installed ArrowSpace (CI runs this suite once per matrix
+cell of ``arrowspace`` versions 0.26.0 / 0.27.3 / 0.28.1):
 
 - issue #40: the README imports ``ArrowSpaceBuilder`` from ``arrowspace``
   and the wrong import genuinely raises ``ImportError``;
@@ -11,17 +11,19 @@ Proves, on the installed ArrowSpace (run under
   ``ArrowSpaceBuilder().build()``;
 - the graph-parameter contract: native ``topk`` key, never ``top_k``,
   and ``tau``/``best_tau`` excluded from build-time dictionaries;
+- sampler selection: torch-present selects ``GPSampler``, torch-missing
+  falls back to ``TPESampler``;
 - the v0.4.1 fixes stay fixed: ``None`` ``search_batch()`` rows are pruned
   instead of crashing, zero-λ probe anchors are filtered before
   ``search_batch()``, and the all-pruned ``RuntimeError`` lists distinct
   build failures.
+
+Executable example subprocess tests live in tests/test_examples.py only.
 """
 
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -56,19 +58,6 @@ def _fast_tuner() -> EpsTuner:
     )
 
 
-def _run_example(name: str) -> None:
-    result = subprocess.run(
-        [sys.executable, str(EXAMPLES_DIR / name)],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    assert result.returncode == 0, (
-        f"{name} failed (exit {result.returncode}):\n"
-        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
-
-
 @pytest.fixture(scope="module")
 def fitted_tuner(embeddings_small: np.ndarray) -> EpsTuner:
     """One shared fit() result reused by the round-trip tests."""
@@ -91,14 +80,31 @@ def test_readme_quickstart_imports() -> None:
         from arrowspace_tuner import ArrowSpaceBuilder  # noqa: F401
 
 
-def test_readme_quickstart_builds_graph() -> None:
-    """The README quickstart is mirrored by examples/quickstart.py, which runs."""
-    _run_example("quickstart.py")
+def test_readme_references_executable_examples() -> None:
+    """The README must point at the executable mirrors it is tested against."""
+    readme = README_PATH.read_text(encoding="utf-8")
+    assert "examples/quickstart.py" in readme
+    assert "examples/power_user.py" in readme
 
 
-def test_power_user_example_builds_graph() -> None:
-    """The README power-user flow is mirrored by examples/power_user.py."""
-    _run_example("power_user.py")
+def test_readme_and_examples_share_contract() -> None:
+    """
+    Minimum anti-drift contract (subprocess execution lives in
+    tests/test_examples.py): the README and both example files must show
+    the same public imports and the same build-parameter contract.
+    """
+    readme = README_PATH.read_text(encoding="utf-8")
+    assert "from arrowspace import ArrowSpaceBuilder" in readme
+    assert "arrowspace_tuner.tune(" in readme
+    assert "tuner.best_tau" in readme
+
+    for name in ("quickstart.py", "power_user.py"):
+        src = (EXAMPLES_DIR / name).read_text(encoding="utf-8")
+        assert "from arrowspace import ArrowSpaceBuilder" in src
+        assert "ArrowSpaceBuilder().build(" in src
+        # native builder key, never the renamed one
+        assert "topk" in src
+        assert "top_k" not in src
 
 
 # ── round trips: tuner output → ArrowSpaceBuilder().build() ──────────────────
@@ -381,19 +387,76 @@ def test_zero_lambda_probe_is_filtered(
     assert 0 < n_probe < 20
 
 
-def test_tpe_fallback_without_torch(embeddings_small: np.ndarray) -> None:
+def test_falls_back_to_tpe_when_torch_missing(
+    embeddings_small: np.ndarray,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """
     GPSampler must not be selected when torch is unavailable: optuna imports
     torch lazily, so the sampler choice succeeds but every trial fails deep
     inside study.optimize() on clean installs (no optuna[botorch]). Found by
     the v0.4.2 wheel smoke test — fit() must complete via the TPE fallback.
     """
-    import sys
-    import unittest.mock as mock
+    import builtins
 
-    with mock.patch.dict(sys.modules, {"torch": None}):
-        graph_params = _fast_tuner().fit(embeddings_small)
+    real_import = builtins.__import__
+
+    # noqa-style escape from ANN401: __import__ signature is protocol-fixed
+    def _no_torch(
+        name: str,
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        if name == "torch":
+            raise ImportError("simulated torch absence")
+        return real_import(name, *args, **kwargs)
+
+    # import-hook (not sys.modules) so a cached torch module cannot defeat
+    # the simulation
+    monkeypatch.setattr(builtins, "__import__", _no_torch)
+    graph_params = _fast_tuner().fit(embeddings_small)
     assert set(graph_params.keys()) == {"eps", "k", "topk", "p", "sigma"}
+
+
+def test_uses_gp_sampler_when_torch_and_gpsampler_are_available(
+    embeddings_small: np.ndarray,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    When torch is importable, the tuner must select GPSampler — the
+    documented default — and construct it with the configured seed and
+    startup trials. study.optimize() is stubbed out so the real GP
+    machinery (and its botorch stack) never runs.
+    """
+    import sys
+    import types
+
+    monkeypatch.setitem(sys.modules, "torch", types.ModuleType("torch"))
+
+    constructed: dict[str, Any] = {}
+
+    class _RecordingGPSampler:
+        def __init__(self, *, seed: int | None = None, n_startup_trials: int | None = None) -> None:
+            constructed["seed"] = seed
+            constructed["n_startup_trials"] = n_startup_trials
+
+    monkeypatch.setattr(optuna.samplers, "GPSampler", _RecordingGPSampler)
+
+    def _stub_optimize(
+        self: optuna.Study,
+        objective: Callable[[optuna.Trial], float],
+        n_trials: int | None = None,
+        n_jobs: int | None = None,
+        **kwargs: object,
+    ) -> None:
+        raise RuntimeError("optimize stubbed — sampler selection asserted separately")
+
+    monkeypatch.setattr(optuna.Study, "optimize", _stub_optimize)
+
+    tuner = EpsTuner(n_trials=3, seed=42)
+    with pytest.raises(RuntimeError, match="optimize stubbed"):
+        tuner.fit(embeddings_small)
+    assert constructed == {"seed": 42, "n_startup_trials": 4}
 
 
 def test_all_pruned_error_lists_distinct_build_failures(

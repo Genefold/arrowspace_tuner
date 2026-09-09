@@ -31,8 +31,10 @@ pip install arrowspace-tuner[report]
 
 ## Quickstart
 
-Executable versions of these snippets live in [`examples/`](examples/) and are
-run on every CI build.
+Executable versions of these snippets live in
+[`examples/quickstart.py`](examples/quickstart.py) and
+[`examples/power_user.py`](examples/power_user.py), and are run on every
+CI build.
 
 ```python
 import numpy as np
