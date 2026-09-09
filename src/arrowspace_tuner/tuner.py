@@ -264,12 +264,17 @@ class EpsTuner:
         )
 
         # ── sampler: GPSampler → TPE multivariate fallback (#4) ─────────────────
-        # GPSampler (Gaussian Process / BoTorch) is the best choice for
-        # small trial budgets (≤30) on a low-dimensional continuous space.
-        # It requires optuna[botorch]; if that is not installed we fall back
-        # to TPESampler with multivariate=True and a reduced n_startup_trials
-        # so the tree model gets as many informed trials as possible.
+        # GPSampler (Gaussian Process) is the best choice for small trial
+        # budgets (≤30) on a low-dimensional continuous space.
+        # A bare `from optuna.samplers import GPSampler` succeeds without
+        # torch, but GPSampler only fails deep inside study.optimize()
+        # (torch is imported lazily by optuna). Probe torch here so clean
+        # installs — the built wheel with bare optuna — fall back to TPE
+        # instead of failing every trial. Discovered by the v0.4.2 wheel
+        # smoke test.
         try:
+            # probe only — GPSampler needs torch at optimize() time
+            import torch  # noqa: F401
             from optuna.samplers import GPSampler
             sampler: optuna.samplers.BaseSampler = GPSampler(
                 seed             = cfg.seed,

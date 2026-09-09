@@ -381,6 +381,21 @@ def test_zero_lambda_probe_is_filtered(
     assert 0 < n_probe < 20
 
 
+def test_tpe_fallback_without_torch(embeddings_small: np.ndarray) -> None:
+    """
+    GPSampler must not be selected when torch is unavailable: optuna imports
+    torch lazily, so the sampler choice succeeds but every trial fails deep
+    inside study.optimize() on clean installs (no optuna[botorch]). Found by
+    the v0.4.2 wheel smoke test — fit() must complete via the TPE fallback.
+    """
+    import sys
+    import unittest.mock as mock
+
+    with mock.patch.dict(sys.modules, {"torch": None}):
+        graph_params = _fast_tuner().fit(embeddings_small)
+    assert set(graph_params.keys()) == {"eps", "k", "topk", "p", "sigma"}
+
+
 def test_all_pruned_error_lists_distinct_build_failures(
     embeddings_small: np.ndarray,
     monkeypatch: pytest.MonkeyPatch,
