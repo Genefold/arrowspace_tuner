@@ -10,15 +10,17 @@ Run the arrowspace_tuner optimisation pipeline on the CVE .npy corpus.
         --trials 20 \
         --seed  42
 """
+
 from __future__ import annotations
 
 import argparse
 import logging
+import time
 
 import numpy as np
+from arrowspace import ArrowSpaceBuilder
 
 from arrowspace_tuner.tuner import EpsTuner
-import time 
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,37 +46,40 @@ def load_npy(path: str, n: int, seed: int) -> np.ndarray:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data",   default="data/cve_embs/cve1999-2025.npy")
-    parser.add_argument("--n",      type=int, default=50000)
+    parser.add_argument("--data", default="data/cve_embs/cve1999-2025.npy")
+    parser.add_argument("--n", type=int, default=50000)
     parser.add_argument("--trials", type=int, default=15)
-    parser.add_argument("--seed",   type=int, default=54)
+    parser.add_argument("--seed", type=int, default=54)
 
     args = parser.parse_args()
 
     embeddings = load_npy(args.data, args.n, args.seed)
     t0 = time.perf_counter()
     tuner = EpsTuner(
-        n_trials   = args.trials,
-        sample_n   = None,          # already subsampled above
-        seed       = args.seed,
-        study_name = "cve_arrowspace_fstar",
-        storage    = None,
-        eps_high = 10.0,
-        eps_low  = 0.01,
-        tau_high= 0.5,
-        tau_low = 0.5, 
-                )
+        n_trials=args.trials,
+        sample_n=None,  # already subsampled above
+        seed=args.seed,
+        study_name="cve_arrowspace_fstar",
+        storage=None,
+        eps_high=10.0,
+        eps_low=0.01,
+        tau_high=0.5,
+        tau_low=0.5,
+    )
 
     log.info("Starting | n=%d  trials=%d  seed=%d", len(embeddings), args.trials, args.seed)
 
-    aspace, gl = tuner.fit(embeddings)
+    graph_params = tuner.fit(embeddings)  # build-time params only (no tau)
     t1 = time.perf_counter()
-    print(f'rubn time: {t1-t0:.2f} seconds')
+    print(f"rubn time: {t1 - t0:.2f} seconds")
+
+    # The caller owns the build step.
+    aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
     print("\n=== Best result ===")
     print(f"  F**        : {tuner.best_score:.8f}")
-    print(f"  eps        : {tuner.best_params['eps']:.5f}")
-    print(f"  k          : {tuner.best_params['k']}")
-    print(f"  tau        : {tuner.best_params['tau']:.4f}")
+    print(f"  eps        : {graph_params['eps']:.5f}")
+    print(f"  k          : {graph_params['k']}")
+    print(f"  tau        : {tuner.best_tau:.4f}  (query-time, not in graph_params)")
     print(f"  fiedler    : {tuner.best_fiedler}")
     print(f"  var_lambda : {tuner.best_var_lambda}")
     print(f"  mrr_proxy  : {tuner.best_mrr_proxy}")

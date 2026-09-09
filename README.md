@@ -31,18 +31,23 @@ pip install arrowspace-tuner[report]
 
 ## Quickstart
 
+Executable versions of these snippets live in [`examples/`](examples/) and are
+run on every CI build.
+
 ```python
 import numpy as np
-import arrowspace_tuner as arrowspace
-from arrowspace_tuner import ArrowSpaceBuilder
+import arrowspace_tuner
+from arrowspace import ArrowSpaceBuilder   # builder comes from `arrowspace`
 
 embeddings = np.load("corpus.npy")   # shape (N, D) float64
 
 # One-liner: auto-discover eps, k, tau — runs in ~15 min on 50k corpus
-graph_params = arrowspace.tune(embeddings)
+graph_params = arrowspace_tuner.tune(embeddings)
+
+# The caller owns the build step
 aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
-# Search as normal
+# Search as normal — tau is a query-time parameter
 results = aspace.search(query_embedding, gl, tau=0.8)
 ```
 
@@ -51,13 +56,36 @@ results = aspace.search(query_embedding, gl, tau=0.8)
 > `load_best_params()` is deprecated — use `load_graph_params()`.
 > `EpsTuner.fit()` now returns `dict` (graph_params), not `(aspace, gl)`.
 
+### Build-time vs. search-time parameters
+
+```text
+graph_params:
+  Build-time parameters only.
+  Expected native ArrowSpace keys:
+  eps, k, topk, p, sigma.
+
+best_tau:
+  Search-time parameter.
+  It is intentionally excluded from graph_params.
+```
+
+Every public result dictionary — from `tune()`, `EpsTuner.fit()`,
+`EpsTuner.graph_params`, and `load_graph_params()` — uses the bindings-native
+`topk` key and can be passed verbatim to `ArrowSpaceBuilder().build()`.
+`best_tau` is a separate search-time result: use it at query time as
+`aspace.search(q, gl, tau=tuner.best_tau)`.
+
 ## Power-user API
 
+Executable version: [`examples/power_user.py`](examples/power_user.py).
+
 ```python
-from arrowspace_tuner import EpsTuner, ArrowSpaceBuilder
+from arrowspace import ArrowSpaceBuilder
+from arrowspace_tuner import EpsTuner
 
 tuner = EpsTuner(
     n_trials  = 15,
+    seed      = 42,
     sample_n  = 50_000,
     eps_low   = 0.8,
     eps_high  = 10,
@@ -68,16 +96,19 @@ tuner = EpsTuner(
 )
 
 graph_params = tuner.fit(embeddings)
+best_tau = tuner.best_tau           # query-time only — not in graph_params
+
+# The caller owns the build step
 aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
-print(tuner.best_params)    # {"eps": 1.615, "k": 38, "topk": 19, "p": ..., "sigma": ...}
-print(tuner.best_tau)       # 0.114  — query-time only, not in best_params
-print(tuner.best_score)     # 2.138
-print(tuner.best_fiedler)   # 0.718  — graph connectivity health
-print(tuner.best_mrr_proxy) # 2.896  — retrieval coherence proxy
+print(graph_params)          # {"eps": 1.615, "k": 38, "topk": 19, "p": ..., "sigma": ...}
+print(tuner.best_tau)        # 0.114  — query-time only, not in graph_params
+print(tuner.best_score)      # 2.138
+print(tuner.best_fiedler)    # 0.718  — graph connectivity health
+print(tuner.best_mrr_proxy)  # 2.896  — retrieval coherence proxy
 
 # Access graph params without file I/O
-print(tuner.graph_params)   # same as best_params, raises RuntimeError before .fit()
+print(tuner.graph_params)    # same dict as best_params, raises RuntimeError before .fit()
 
 # Save CSV + HTML plots (requires [report] extra)
 tuner.save_report(out_dir="results")
