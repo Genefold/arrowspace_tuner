@@ -42,10 +42,10 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
-        # Floor and ceiling of the declared support range
-        # (arrowspace >= 0.26.0, < 0.29). Isolated resolution via --with,
-        # so the local lockfile cannot conceal an unsupported resolution.
-        arrowspace-version: ["0.26.0", "0.28.1"]
+        # Lower bound, the release that introduced strict builder-key
+        # validation, and the upper tested version of the declared support
+        # range (arrowspace >= 0.26.0, < 0.29).
+        arrowspace-version: ["0.26.0", "0.27.3", "0.28.1"]
 
     steps:
       - uses: actions/checkout@v4
@@ -62,8 +62,84 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
 
-      - name: Install project + dev deps with arrowspace ${{ matrix.arrowspace-version }}
-        run: uv sync --extra dev --python ${{ matrix.python-version }} --with "arrowspace==${{ matrix.arrowspace-version }}"
+      # Lockfile bypass: uv sync cannot override a locked direct
+      # dependency, so each cell builds its own venv. The arrowspace pin
+      # goes in first; the project is installed with --no-deps and its
+      # remaining dependencies explicitly, so nothing can replace the pin.
+      - name: Create isolated compatibility environment
+        run: |
+          uv venv --python ${{ matrix.python-version }} .venv-ci
+          . .venv-ci/bin/activate
+          uv pip install "arrowspace==${{ matrix.arrowspace-version }}"
+          uv pip install --no-deps .
+          uv pip install "numpy>=2.4.4" "optuna>=4.8.0" "scipy>=1.17.1" "pytest>=8.0" "pytest-cov>=5.0"
 
-      - name: Run tests
-        run: uv run --no-sync pytest -v --cov=arrowspace_tuner --cov-report=term-missing
+      - name: Verify resolved ArrowSpace version
+        run: |
+          . .venv-ci/bin/activate
+          python - <<'PY'
+          import importlib.metadata as md
+          expected = "${{ matrix.arrowspace-version }}"
+          actual = md.version("arrowspace")
+          print(f"Expected arrowspace: {expected}")
+          print(f"Actual arrowspace:   {actual}")
+          assert actual == expected, (actual, expected)
+          PY
+
+      - name: Environment diagnostics
+        run: |
+          . .venv-ci/bin/activate
+          python --version
+          rustc --version
+          cargo --version
+          uv pip show arrowspace | grep -E "^(Name|Version)"
+          uv pip show arrowspace_tuner | grep -E "^(Name|Version)"
+
+      - name: Run full compatibility suite
+        run: |
+          . .venv-ci/bin/activate
+          python -m pytest -v
+
+  wheel-smoke:
+    name: wheel smoke (py3.13, arrowspace 0.28.1)
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # the arrowspace==0.28.1 dependency is built from sdist on ubuntu
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Build wheel
+        run: uv build
+
+      - name: Install built artefact in a clean environment
+        run: |
+          uv venv --python 3.13 .venv-wheel
+          . .venv-wheel/bin/activate
+          uv pip install "arrowspace==0.28.1"
+          uv pip install --no-deps dist/arrowspace_tuner-*.whl
+          uv pip install "numpy>=2.4.4" "optuna>=4.8.0" "scipy>=1.17.1"
+
+      - name: Verify installed distribution
+        run: |
+          . .venv-wheel/bin/activate
+          python -c "import importlib.metadata as md; assert md.version('arrowspace') == '0.28.1'; print('arrowspace_tuner', md.version('arrowspace_tuner'))"
+
+      # Run from /tmp so sys.path cannot shadow the installed wheel with
+      # the source checkout.
+      - name: Run quickstart and power-user examples
+        run: |
+          . .venv-wheel/bin/activate
+          cd /tmp
+          python "$GITHUB_WORKSPACE/examples/quickstart.py"
+          python "$GITHUB_WORKSPACE/examples/power_user.py"
