@@ -13,6 +13,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Corrected the README and PyPI quickstart/power-user examples to import
   `ArrowSpaceBuilder` from `arrowspace`, not `arrowspace_tuner`. The
   previous examples raised `ImportError` on the released wheel. Closes #40.
+- Fixed clean-install tuning failures when PyTorch is not installed.
+  `GPSampler` imports PyTorch lazily; the tuner now detects unavailable
+  PyTorch before sampler selection and falls back to `TPESampler`.
+  Users with PyTorch installed keep `GPSampler` as the default. Found
+  by the wheel smoke test.
 - `scripts/test_eval.py` updated to the v0.4.x API (`fit()` returns
   graph_params; the caller owns the build step; `tau` read from
   `best_tau`).
