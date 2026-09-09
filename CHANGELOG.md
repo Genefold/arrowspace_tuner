@@ -6,6 +6,49 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.2] — 2026-09-09
+
+### Fixed
+
+- Corrected the README and PyPI quickstart/power-user examples to import
+  `ArrowSpaceBuilder` from `arrowspace`, not `arrowspace_tuner`. The
+  previous examples raised `ImportError` on the released wheel. Closes #40.
+- Fixed clean-install tuning failures when PyTorch is not installed.
+  `GPSampler` imports PyTorch lazily; the tuner now detects unavailable
+  PyTorch before sampler selection and falls back to `TPESampler`.
+  Users with PyTorch installed keep `GPSampler` as the default. Found
+  by the wheel smoke test.
+- `scripts/test_eval.py` updated to the v0.4.x API (`fit()` returns
+  graph_params; the caller owns the build step; `tau` read from
+  `best_tau`).
+
+### Compatibility
+
+- Added tested compatibility with ArrowSpace 0.28.x. The support range is
+  now `arrowspace >= 0.26.0, < 0.29`; tested with 0.26.0, 0.27.3, and
+  0.28.1. Closes #41.
+- Added regression coverage proving that the graph-parameter dictionaries
+  returned by `tune()`, `EpsTuner.fit()`, `EpsTuner.graph_params`, and
+  `load_graph_params()` round-trip directly into
+  `ArrowSpaceBuilder.build()` on every supported ArrowSpace version.
+- Added executable example tests: `examples/quickstart.py` and
+  `examples/power_user.py` mirror the README snippets and run in
+  `tests/test_examples.py` on every CI build.
+- Added an ArrowSpace compatibility matrix to CI (Python 3.12/3.13 ×
+  ArrowSpace 0.26.0/0.28.1) using isolated resolution so the lockfile
+  cannot conceal an unsupported resolution.
+
+### Notes
+
+- This release does not change the public API.
+- Graph-build parameter dictionaries continue to use ArrowSpace's native
+  `topk` key — never `top_k`.
+- `best_tau` remains a separate search-time result and is intentionally
+  excluded from graph-build parameters. Use it at query time:
+  `aspace.search(q, gl, tau=tuner.best_tau)`.
+
+---
+
 ## [0.4.1] — 2026-09-04
 
 ### Fixed

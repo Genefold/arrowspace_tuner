@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arrowspace_tuner"
-version = "0.4.1"
+version = "0.4.2"
 description = "Hyperparameter discovery (eps auto-tuning) for ArrowSpace via Optuna"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -34,8 +34,10 @@ classifiers = [
 # ── Hard dependencies ──────────────────────────────────────────────────────
 # These are always required: the Rust wheel, Optuna, SciPy for Fiedler, NumPy.
 # plotly and pandas are NOT here — they are opt-in via [report].
+# arrowspace support range: 0.26.x–0.28.x tested (see README Requirements);
+# the upper bound is the tested ceiling, not a known incompatibility.
 dependencies = [
-    "arrowspace>=0.26.0",
+    "arrowspace>=0.26.0,<0.29",
     "numpy>=2.4.4",
     "optuna>=4.8.0",
     "scipy>=1.17.1",
