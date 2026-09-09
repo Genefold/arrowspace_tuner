@@ -141,7 +141,7 @@ python -m arrowspace_tuner --storage sqlite:///tune.db --trials 15
 ## Requirements
 
 - Python ≥ 3.12
-- `arrowspace >= 0.26.0`
+- `arrowspace >= 0.26.0, < 0.29` — tested with 0.26.0, 0.27.3, and 0.28.1
 - `optuna >= 4.8.0`
 - `scipy >= 1.17.1`
 - `numpy >= 2.4.4`
