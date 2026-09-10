@@ -27,6 +27,7 @@ Best-trial cache (#9):
     current best. EpsTuner reads this after study.optimize() and skips
     the otherwise-redundant _final_build call.
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,11 +45,11 @@ from .graph import PyGraphLaplacian, fiedler_normalized_from_csr
 logger = logging.getLogger(__name__)
 
 # ── objective weights ─────────────────────────────────────────────────────────
-W_MRR  = 0.70
+W_MRR = 0.70
 W_FIED = 0.20
-W_VAR  = 0.10
+W_VAR = 0.10
 
-K_EVAL = 10   # top-k cutoff for MRR-Top0
+K_EVAL = 10  # top-k cutoff for MRR-Top0
 
 
 class ArrowSpaceProtocol(Protocol):
@@ -76,10 +77,11 @@ class ArrowSpaceProtocol(Protocol):
 
 # ── graph build + spectral diagnostics ───────────────────────────────────────
 
+
 def build_and_score(
     embeddings: np.ndarray,
-    params:     BuildParams,
-    trial:      optuna.Trial | None = None,
+    params: BuildParams,
+    trial: optuna.Trial | None = None,
 ) -> tuple[float, float, ArrowSpaceProtocol | None, PyGraphLaplacian | None]:
     """
     Build an ArrowSpace graph and compute spectral diagnostics.
@@ -132,56 +134,50 @@ def build_and_score(
     except BaseException as exc:
         logger.warning(
             "ArrowSpace .build() failed (eps=%.4f k=%d): %s — pruning",
-            params.eps, params.k, exc,
+            params.eps,
+            params.k,
+            exc,
         )
         if trial:
             # Persist the exception so fit() can surface it if ALL trials
             # prune (otherwise the root cause is swallowed by the generic
             # "corpus too small" RuntimeError).
-            trial.set_user_attr(
-                "build_error", f"{type(exc).__name__}: {exc}"
-            )
+            trial.set_user_attr("build_error", f"{type(exc).__name__}: {exc}")
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
 
     # ── pre-flight: check graph shape ─────────────────────────────────────────
     shape = gl.shape()
     if shape[1] < 2:
-        logger.warning(
-            "Degenerate graph shape=%s (single cluster) | eps=%.4f", shape, params.eps
-        )
+        logger.warning("Degenerate graph shape=%s (single cluster) | eps=%.4f", shape, params.eps)
         if trial:
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
 
     # ── single FFI call: materialise CSR once (#10) ───────────────────────────
-    raw     = gl.to_csr()
-    data    = np.asarray(raw[0], dtype=np.float64)
+    raw = gl.to_csr()
+    data = np.asarray(raw[0], dtype=np.float64)
     indices = np.asarray(raw[1], dtype=np.int32)
-    indptr  = np.asarray(raw[2], dtype=np.int32)
-    n       = shape[1]
-    nnz     = len(data)
-    L       = sp.csr_matrix((data, indices, indptr), shape=(n, n))
+    indptr = np.asarray(raw[2], dtype=np.int32)
+    n = shape[1]
+    nnz = len(data)
+    L = sp.csr_matrix((data, indices, indptr), shape=(n, n))
 
     # ── degenerate guard 1: nearly empty graph ────────────────────────────────
     if nnz <= n:
-        logger.warning(
-            "Degenerate graph NNZ=%d <= N=%d | eps=%.4f", nnz, n, params.eps
-        )
+        logger.warning("Degenerate graph NNZ=%d <= N=%d | eps=%.4f", nnz, n, params.eps)
         if trial:
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
 
-    fiedler    = fiedler_normalized_from_csr(L, nnz)
-    lambdas    = np.array(aspace.lambdas(), dtype=np.float64)
-    spread     = float(lambdas.max() - lambdas.min()) if len(lambdas) > 1 else 0.0
-    var_lambda = float(np.var(lambdas))               if len(lambdas) > 1 else 0.0
+    fiedler = fiedler_normalized_from_csr(L, nnz)
+    lambdas = np.array(aspace.lambdas(), dtype=np.float64)
+    spread = float(lambdas.max() - lambdas.min()) if len(lambdas) > 1 else 0.0
+    var_lambda = float(np.var(lambdas)) if len(lambdas) > 1 else 0.0
 
     # ── degenerate guard 2: disconnected graph ────────────────────────────────
     if fiedler <= 1e-6:
-        logger.warning(
-            "Disconnected graph fiedler=%.2e — pruning", fiedler
-        )
+        logger.warning("Disconnected graph fiedler=%.2e — pruning", fiedler)
         if trial:
             raise optuna.TrialPruned()
         return 0.0, 0.0, None, None
@@ -194,9 +190,7 @@ def build_and_score(
 
     # ── degenerate guard 3: flat spectrum ─────────────────────────────────────
     if spread < 1e-10:
-        logger.warning(
-            "Flat spectrum spread=%.2e — pruning", spread
-        )
+        logger.warning("Flat spectrum spread=%.2e — pruning", spread)
         if trial:
             raise optuna.TrialPruned()
         return fiedler, 0.0, None, None
@@ -212,9 +206,10 @@ def build_and_score(
 
 # ── main factory ──────────────────────────────────────────────────────────────
 
+
 def make_objective(
     embeddings: np.ndarray,
-    cfg:        StudyConfig,
+    cfg: StudyConfig,
 ) -> tuple[object, dict[str, Any]]:
     """
     Return ``(objective_fn, best_cache)`` closed over embeddings and cfg.
@@ -256,24 +251,22 @@ def make_objective(
     # ── draw fixed subsample ONCE ─────────────────────────────────────────────
     using_subsample = bool(cfg.sample_n and cfg.sample_n < len(embeddings))
     if using_subsample:
-        rng       = np.random.default_rng(cfg.seed)
-        idx       = rng.choice(len(embeddings), size=cfg.sample_n, replace=False)
+        rng = np.random.default_rng(cfg.seed)
+        idx = rng.choice(len(embeddings), size=cfg.sample_n, replace=False)
         emb_fixed = embeddings[idx]
     else:
         emb_fixed = embeddings
 
     # ── draw fixed probe indices ONCE ─────────────────────────────────────────
-    n_fixed         = len(emb_fixed)
-    rng_probe       = np.random.default_rng(cfg.seed + 42)
-    probe_idx_fixed = rng_probe.choice(
-        n_fixed, size=min(cfg.n_probe, n_fixed), replace=False
-    )
+    n_fixed = len(emb_fixed)
+    rng_probe = np.random.default_rng(cfg.seed + 42)
+    probe_idx_fixed = rng_probe.choice(n_fixed, size=min(cfg.n_probe, n_fixed), replace=False)
 
     # ── best-trial cache (#9) ─────────────────────────────────────────────────
     # Only populated when using the full corpus (not a subsample), because
     # subsample-built objects cannot be returned as the final (aspace, gl).
     best_cache: dict[str, Any] = {}  # keys: "aspace", "gl", "score" when populated
-    _cache_lock = threading.Lock()   # protect concurrent updates (n_jobs > 1)
+    _cache_lock = threading.Lock()  # protect concurrent updates (n_jobs > 1)
 
     def objective(trial: optuna.Trial) -> float:
 
@@ -281,9 +274,9 @@ def make_objective(
         emb_trial = emb_fixed
 
         # ── 2. suggest hyperparameters ────────────────────────────────────────
-        k   = trial.suggest_int(  "k",   cfg.k_low,   cfg.k_high)
-        eps = trial.suggest_float("eps", cfg.eps_low,  cfg.eps_high, log=True)
-        tau = trial.suggest_float("tau", cfg.tau_low,  cfg.tau_high)
+        k = trial.suggest_int("k", cfg.k_low, cfg.k_high)
+        eps = trial.suggest_float("eps", cfg.eps_low, cfg.eps_high, log=True)
+        tau = trial.suggest_float("tau", cfg.tau_low, cfg.tau_high)
 
         params = BuildParams(
             eps=eps,
@@ -293,17 +286,13 @@ def make_objective(
 
         # ── 3. build graph + spectral diagnostics (includes pruner steps 0,1) ──
         try:
-            fiedler, var_lambda, aspace, gl = build_and_score(
-                emb_trial, params, trial
-            )
+            fiedler, var_lambda, aspace, gl = build_and_score(emb_trial, params, trial)
         except optuna.TrialPruned:
             raise
         except (KeyboardInterrupt, SystemExit):
             raise
         except Exception as exc:
-            logger.warning(
-                "Trial %d unexpected error: %s", trial.number, exc, exc_info=True
-            )
+            logger.warning("Trial %d unexpected error: %s", trial.number, exc, exc_info=True)
             return 0.0
 
         # ── 4. fixed probe anchors, filtered to non-zero lambda (#24) ──────────
@@ -320,9 +309,7 @@ def make_objective(
                 trial.number,
             )
             raise optuna.TrialPruned()
-        probe_embs = np.ascontiguousarray(
-            emb_trial[probe_idx], dtype=np.float64
-        )
+        probe_embs = np.ascontiguousarray(emb_trial[probe_idx], dtype=np.float64)
 
         # ── 5. k-NN retrieval via search_batch ────────────────────────────────
         try:
@@ -330,17 +317,19 @@ def make_objective(
         except Exception as exc:
             logger.warning(
                 "Trial %d search_batch failed (eps=%.4f k=%d tau=%.3f): %s",
-                trial.number, params.eps, params.k, tau, exc,
+                trial.number,
+                params.eps,
+                params.k,
+                tau,
+                exc,
             )
-            trial.set_user_attr(
-                "build_error", f"{type(exc).__name__}: {exc}"
-            )
+            trial.set_user_attr("build_error", f"{type(exc).__name__}: {exc}")
             raise optuna.TrialPruned()
 
         # ── 6. build k-NN index table ─────────────────────────────────────────
         P = len(probe_idx)
         knn_indices = np.zeros((P, K_EVAL), dtype=np.int64)
-        row_widths  = np.zeros(P, dtype=np.int64)
+        row_widths = np.zeros(P, dtype=np.int64)
         for row, results in enumerate(batch_results or []):
             if not results:
                 # pyarrowspace >= 0.26.7 returns None rows for probes with
@@ -348,7 +337,7 @@ def make_objective(
                 # below prune. Previously this crashed with TypeError.
                 continue
             hits = results[:K_EVAL]
-            w    = len(hits)
+            w = len(hits)
             row_widths[row] = w
             for col, (idx_item, _) in enumerate(hits):
                 knn_indices[row, col] = idx_item
@@ -366,23 +355,23 @@ def make_objective(
 
         # ── 7. spectral MRR-Top0 proxy (vectorised) ───────────────────────────
         # lambdas was fetched at step 4 for anchor filtering — reuse it.
-        sigma        = float(np.std(lambdas)) + 1e-9
+        sigma = float(np.std(lambdas)) + 1e-9
         lambda_probe = lambdas[probe_idx]
 
-        l_q    = lambda_probe[:, None]
+        l_q = lambda_probe[:, None]
         l_nbrs = lambdas[knn_indices]
-        T      = np.exp(-np.abs(l_q - l_nbrs) / sigma)
+        T = np.exp(-np.abs(l_q - l_nbrs) / sigma)
 
-        col_idx   = np.arange(K_EVAL)
-        mask      = col_idx[None, :] < row_widths[:, None]
-        inv_rk    = 1.0 / np.arange(1, K_EVAL + 1)
+        col_idx = np.arange(K_EVAL)
+        mask = col_idx[None, :] < row_widths[:, None]
+        inv_rk = 1.0 / np.arange(1, K_EVAL + 1)
         mrr_proxy = float(((T * inv_rk) * mask).sum(axis=1).mean())
 
         # ── 8. composite objective ────────────────────────────────────────────
         score = (
-            W_MRR  * mrr_proxy
-          + W_FIED * float(np.log1p(fiedler))
-          + W_VAR  * float(np.log1p(var_lambda))
+            W_MRR * mrr_proxy
+            + W_FIED * float(np.log1p(fiedler))
+            + W_VAR * float(np.log1p(var_lambda))
         )
 
         # ── 9. update best-trial cache (full-corpus path only) ────────────────
@@ -390,22 +379,29 @@ def make_objective(
             with _cache_lock:
                 if score > best_cache.get("score", -1.0):
                     best_cache["aspace"] = aspace
-                    best_cache["gl"]     = gl
-                    best_cache["score"]  = score
+                    best_cache["gl"] = gl
+                    best_cache["score"] = score
 
         # ── 10. log trial attributes ──────────────────────────────────────────
-        trial.set_user_attr("fiedler",    round(fiedler,    8))
+        trial.set_user_attr("fiedler", round(fiedler, 8))
         trial.set_user_attr("var_lambda", round(var_lambda, 8))
-        trial.set_user_attr("mrr_proxy",  round(mrr_proxy,  6))
-        trial.set_user_attr("tau",        round(tau,        6))
-        trial.set_user_attr("n_sample",   len(emb_trial))
-        trial.set_user_attr("n_probe",    len(probe_idx))
+        trial.set_user_attr("mrr_proxy", round(mrr_proxy, 6))
+        trial.set_user_attr("tau", round(tau, 6))
+        trial.set_user_attr("n_sample", len(emb_trial))
+        trial.set_user_attr("n_probe", len(probe_idx))
 
         logger.info(
             "Trial %03d | eps=%.5f k=%2d topk=%2d tau=%.3f | "
             "fiedler=%.4f var=%.4f mrr=%.4f → score=%.6f",
-            trial.number, params.eps, params.k, params.topk, tau,
-            fiedler, var_lambda, mrr_proxy, score,
+            trial.number,
+            params.eps,
+            params.k,
+            params.topk,
+            tau,
+            fiedler,
+            var_lambda,
+            mrr_proxy,
+            score,
         )
         return score
 

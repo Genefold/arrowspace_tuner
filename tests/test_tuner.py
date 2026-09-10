@@ -4,6 +4,7 @@ test_tuner.py — integration tests for EpsTuner and the optuna() one-liner.
 These tests exercise the full public API end-to-end.
 They require the arrowspace Rust wheel to be installed.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,18 +18,19 @@ from arrowspace_tuner import EpsTuner, tune
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+
 def _make_tuner(**overrides: object) -> EpsTuner:
     """Return a fast EpsTuner suitable for tests."""
     defaults = dict(
-        n_trials   = 3,
-        seed       = 42,
-        eps_low    = 0.5,
-        eps_high   = 2.0,
-        k_low      = 3,
-        k_high     = 10,
-        tau_low    = 0.3,
-        tau_high   = 1.2,
-        n_probe    = 20,
+        n_trials=3,
+        seed=42,
+        eps_low=0.5,
+        eps_high=2.0,
+        k_low=3,
+        k_high=10,
+        tau_low=0.3,
+        tau_high=1.2,
+        n_probe=20,
     )
     defaults.update(overrides)
     return EpsTuner(**defaults)
@@ -36,17 +38,17 @@ def _make_tuner(**overrides: object) -> EpsTuner:
 
 # ── EpsTuner.__init__ ─────────────────────────────────────────────────────────
 
-class TestEpsTunerInit:
 
+class TestEpsTunerInit:
     def test_default_instantiation(self) -> None:
         tuner = EpsTuner()
-        assert tuner.best_params     is None
-        assert tuner.best_score      is None
-        assert tuner.best_fiedler    is None
+        assert tuner.best_params is None
+        assert tuner.best_score is None
+        assert tuner.best_fiedler is None
         assert tuner.best_var_lambda is None
-        assert tuner.best_mrr_proxy  is None
-        assert tuner.best_tau        is None
-        assert tuner.study           is None
+        assert tuner.best_mrr_proxy is None
+        assert tuner.best_tau is None
+        assert tuner.study is None
 
     def test_repr_before_fit(self) -> None:
         tuner = _make_tuner()
@@ -62,8 +64,8 @@ class TestEpsTunerInit:
 
 # ── EpsTuner._validate ────────────────────────────────────────────────────────
 
-class TestEpsTunerValidation:
 
+class TestEpsTunerValidation:
     def test_raises_on_non_array(self) -> None:
         tuner = _make_tuner()
         with pytest.raises(ValueError, match="np.ndarray"):
@@ -82,6 +84,7 @@ class TestEpsTunerValidation:
         """float32 input triggers a warning and is silently cast to float64."""
         tuner = _make_tuner()
         import logging
+
         with caplog.at_level(logging.WARNING):
             # validate() only — don't call fit() to avoid full Rust dependency
             result = tuner._validate(embeddings_wrong_dtype)
@@ -91,55 +94,64 @@ class TestEpsTunerValidation:
 
 # ── StudyConfig validation ────────────────────────────────────────────────────
 
-class TestStudyConfigValidation:
 
+class TestStudyConfigValidation:
     def test_raises_on_inverted_eps_bounds(self) -> None:
         from arrowspace_tuner import StudyConfig
+
         with pytest.raises(ValueError, match="eps_low"):
             StudyConfig(eps_low=3.0, eps_high=1.0)
 
     def test_raises_on_inverted_k_bounds(self) -> None:
         from arrowspace_tuner import StudyConfig
+
         with pytest.raises(ValueError, match="k_low"):
             StudyConfig(k_low=20, k_high=5)
 
     def test_raises_on_inverted_tau_bounds(self) -> None:
         from arrowspace_tuner import StudyConfig
+
         with pytest.raises(ValueError, match="tau_low"):
             StudyConfig(tau_low=1.0, tau_high=0.1)
 
     def test_raises_on_zero_trials(self) -> None:
         from arrowspace_tuner import StudyConfig
+
         with pytest.raises(ValueError, match="n_trials"):
             StudyConfig(n_trials=0)
 
     def test_raises_on_zero_probe(self) -> None:
         from arrowspace_tuner import StudyConfig
+
         with pytest.raises(ValueError, match="n_probe"):
             StudyConfig(n_probe=0)
 
 
 # ── BuildParams.__post_init__ ─────────────────────────────────────────────────
 
-class TestBuildParamsTopk:
 
+class TestBuildParamsTopk:
     def test_topk_resolved_to_half_k_by_default(self) -> None:
         from arrowspace_tuner import BuildParams
+
         p = BuildParams(k=20)
-        assert p.topk == 10   # max(1, 20 // 2)
+        assert p.topk == 10  # max(1, 20 // 2)
 
     def test_topk_override_respected(self) -> None:
         from arrowspace_tuner import BuildParams
+
         p = BuildParams(k=20, topk=3)
         assert p.topk == 3
 
     def test_topk_minimum_one(self) -> None:
         from arrowspace_tuner import BuildParams
+
         p = BuildParams(k=1)
-        assert p.topk == 1   # max(1, 1 // 2) = max(1, 0) = 1
+        assert p.topk == 1  # max(1, 1 // 2) = max(1, 0) = 1
 
 
 # ── fit() all-pruned RuntimeError diagnostics (#38, #24) ──────────────────────
+
 
 class TestFitAllPruned:
     """fit() must raise a diagnostic RuntimeError when every trial prunes."""
@@ -170,9 +182,7 @@ class TestFitAllPruned:
         When trials prune with exceptions, fit() must surface the distinct
         build errors instead of blaming the corpus (#38).
         """
-        self._stub_build_and_score(
-            monkeypatch, build_error="ValueError: unknown key(s) 'top_k'"
-        )
+        self._stub_build_and_score(monkeypatch, build_error="ValueError: unknown key(s) 'top_k'")
         tuner = _make_tuner()
         with pytest.raises(RuntimeError) as excinfo:
             tuner.fit(embeddings_small)
@@ -204,10 +214,12 @@ class TestFitAllPruned:
         Zero-lambda anchors are now filtered and fit() completes.
         """
         rng = np.random.default_rng(3407)
-        X = np.vstack([
-            rng.normal(0, 1, (40, 12)) + 2.0,
-            rng.normal(4, 1, (40, 12)),
-        ])
+        X = np.vstack(
+            [
+                rng.normal(0, 1, (40, 12)) + 2.0,
+                rng.normal(4, 1, (40, 12)),
+            ]
+        )
         tuner = EpsTuner(n_trials=5, seed=3407, eps_low=0.5, eps_high=3.0)
         params = tuner.fit(X)
         assert set(params.keys()) == {"eps", "k", "topk", "p", "sigma"}
@@ -216,8 +228,8 @@ class TestFitAllPruned:
 
 # ── save_report — pre-fit guard ───────────────────────────────────────────────
 
-class TestSaveReport:
 
+class TestSaveReport:
     def test_raises_before_fit(self) -> None:
         """save_report() must raise RuntimeError when called before .fit()."""
         tuner = EpsTuner()
@@ -233,6 +245,7 @@ class TestSaveReport:
         the real arrowspace wheel.
         """
         import unittest.mock as mock
+
         import optuna as opt
 
         # Build a minimal fake completed study
@@ -242,7 +255,7 @@ class TestSaveReport:
                 params={"eps": 1.0, "k": 10, "tau": 0.5},
                 distributions={
                     "eps": opt.distributions.FloatDistribution(0.1, 5.0),
-                    "k":   opt.distributions.IntDistribution(3, 40),
+                    "k": opt.distributions.IntDistribution(3, 40),
                     "tau": opt.distributions.FloatDistribution(0.1, 1.0),
                 },
                 value=0.42,
@@ -251,16 +264,20 @@ class TestSaveReport:
 
         tuner = EpsTuner()
         tuner.study = study  # inject pre-built study
-        tuner.best_tau    = 0.5
+        tuner.best_tau = 0.5
         tuner.best_params = {"eps": 1.0, "k": 10, "topk": 5, "p": 2.0, "sigma": None}
 
         # Patch pandas/plotly import to simulate missing [report] extra
-        with mock.patch.dict("sys.modules", {"pandas": None, "plotly": None, "plotly.express": None}):
+        with mock.patch.dict(
+            "sys.modules",
+            {"pandas": None, "plotly": None, "plotly.express": None},
+        ):
             with pytest.raises((ImportError, TypeError)):
                 tuner.save_report(out_dir=str(tmp_path))
 
 
 # ── tau separation: tau is query-time, not build-time ─────────────────────────
+
 
 class TestBestTauSeparation:
     """
@@ -275,12 +292,12 @@ class TestBestTauSeparation:
             opt.trial.create_trial(
                 params={
                     "eps": 1.2,
-                    "k":   14,
+                    "k": 14,
                     "tau": 0.75,
                 },
                 distributions={
                     "eps": opt.distributions.FloatDistribution(0.3, 4.0),
-                    "k":   opt.distributions.IntDistribution(3, 40),
+                    "k": opt.distributions.IntDistribution(3, 40),
                     "tau": opt.distributions.FloatDistribution(0.1, 1.0),
                 },
                 value=0.85,
@@ -292,21 +309,21 @@ class TestBestTauSeparation:
 
         # Replicate the result-extraction block from fit() directly
         # so we test just the assignment logic in isolation
-        best     = study.best_trial
-        raw      = best.params
-        tuner.study           = study
-        tuner.best_tau        = float(raw["tau"])
-        tuner.best_params     = {
-            "eps":   raw["eps"],
-            "k":     raw["k"],
+        best = study.best_trial
+        raw = best.params
+        tuner.study = study
+        tuner.best_tau = float(raw["tau"])
+        tuner.best_params = {
+            "eps": raw["eps"],
+            "k": raw["k"],
             "topk": max(1, raw["k"] // 2),
-            "p":     2.0,
+            "p": 2.0,
             "sigma": None,
         }
-        tuner.best_score      = best.value
-        tuner.best_fiedler    = best.user_attrs.get("fiedler")
+        tuner.best_score = best.value
+        tuner.best_fiedler = best.user_attrs.get("fiedler")
         tuner.best_var_lambda = best.user_attrs.get("var_lambda")
-        tuner.best_mrr_proxy  = best.user_attrs.get("mrr_proxy")
+        tuner.best_mrr_proxy = best.user_attrs.get("mrr_proxy")
         return tuner
 
     def test_tau_absent_from_best_params(self) -> None:
@@ -319,10 +336,10 @@ class TestBestTauSeparation:
 
     def test_best_params_values_correct(self) -> None:
         tuner = self._make_fitted_tuner()
-        assert tuner.best_params["eps"]   == pytest.approx(1.2)
-        assert tuner.best_params["k"]     == 14
-        assert tuner.best_params["topk"] == 7      # max(1, 14 // 2)
-        assert tuner.best_params["p"]     == 2.0
+        assert tuner.best_params["eps"] == pytest.approx(1.2)
+        assert tuner.best_params["k"] == 14
+        assert tuner.best_params["topk"] == 7  # max(1, 14 // 2)
+        assert tuner.best_params["p"] == 2.0
         assert tuner.best_params["sigma"] is None
 
     def test_best_tau_populated(self) -> None:
@@ -338,7 +355,7 @@ class TestBestTauSeparation:
     def test_topk_is_half_k(self) -> None:
         """topk must always be max(1, k // 2) — never the raw k."""
         tuner = self._make_fitted_tuner()
-        k     = tuner.best_params["k"]
+        k = tuner.best_params["k"]
         top_k = tuner.best_params["topk"]
         assert top_k == max(1, k // 2)
 
@@ -350,7 +367,7 @@ class TestBestTauSeparation:
                 params={"eps": 0.5, "k": 1, "tau": 0.5},
                 distributions={
                     "eps": opt.distributions.FloatDistribution(0.3, 4.0),
-                    "k":   opt.distributions.IntDistribution(1, 40),
+                    "k": opt.distributions.IntDistribution(1, 40),
                     "tau": opt.distributions.FloatDistribution(0.1, 1.0),
                 },
                 value=0.5,
@@ -373,6 +390,7 @@ class TestBestTauSeparation:
 
 
 # ── fit() returns graph_params dict ───────────────────────────────────────────
+
 
 class TestFitReturnsParams:
     """Tests that EpsTuner.fit() and api.optuna() return graph_params dicts."""
@@ -411,6 +429,7 @@ class TestFitReturnsParams:
 
 # ── graph_params property ─────────────────────────────────────────────────────
 
+
 class TestGraphParamsProperty:
     """Tests for the EpsTuner.graph_params property."""
 
@@ -436,6 +455,7 @@ class TestGraphParamsProperty:
 
 
 # ── load_graph_params / load_best_params deprecation ──────────────────────────
+
 
 class TestLoadGraphParams:
     """Tests for disk-based graph-params loading."""
@@ -464,7 +484,7 @@ class TestLoadGraphParams:
         params = tuner.load_graph_params()
         assert "topk" in params
         assert "top_k" not in params
-        assert params["topk"] == 7   # max(1, 14 // 2)
+        assert params["topk"] == 7  # max(1, 14 // 2)
 
     def test_load_best_params_emits_deprecation_warning(
         self,

@@ -4,6 +4,7 @@ test_objective.py — unit tests for core/graph.py and core/objective.py.
 These tests exercise the internal building blocks in isolation.
 They require the arrowspace Rust wheel to be installed.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -21,8 +22,8 @@ from arrowspace_tuner.core.config import StudyConfig
 
 # ── BuildParams.to_dict ─────────────────────────────────────────────────────────
 
-class TestBuildParams:
 
+class TestBuildParams:
     def test_to_dict_keys(self) -> None:
         p = BuildParams(eps=1.0, k=10, topk=5)
         d = p.to_dict()
@@ -31,8 +32,8 @@ class TestBuildParams:
     def test_to_dict_values(self) -> None:
         p = BuildParams(eps=1.5, k=8, topk=4, p=2.0, sigma=None)
         d = p.to_dict()
-        assert d["eps"]   == 1.5
-        assert d["k"]     == 8
+        assert d["eps"] == 1.5
+        assert d["k"] == 8
         assert d["topk"] == 4
         assert d["sigma"] is None
 
@@ -67,13 +68,13 @@ class TestBuildParams:
 
     def test_topk_default_is_half_k(self) -> None:
         p = BuildParams(k=12)
-        assert p.topk == 6   # k=12, so __post_init__ sets topk = max(1, 12 // 2) = 6
+        assert p.topk == 6  # k=12, so __post_init__ sets topk = max(1, 12 // 2) = 6
 
 
 # ── build_and_score ───────────────────────────────────────────────────────────
 
-class TestBuildAndScore:
 
+class TestBuildAndScore:
     def test_returns_four_values(self, embeddings_small: np.ndarray) -> None:
         params = BuildParams(eps=1.5, k=8, topk=4)
         result = build_and_score(embeddings_small, params)
@@ -115,7 +116,7 @@ class TestBuildAndScore:
         params = BuildParams(eps=1.5, k=8, topk=4)
         fiedler, _, _, gl = build_and_score(embeddings_small, params)
         if gl is not None:
-            assert 0.0 <= fiedler <= 1.0 + 1e-9   # small float tolerance
+            assert 0.0 <= fiedler <= 1.0 + 1e-9  # small float tolerance
 
     def test_var_lambda_nonnegative(self, embeddings_small: np.ndarray) -> None:
         params = BuildParams(eps=1.5, k=8, topk=4)
@@ -125,8 +126,8 @@ class TestBuildAndScore:
 
 # ── fiedler_normalized ───────────────────────────────────────────────────────────
 
-class TestFiedlerNormalized:
 
+class TestFiedlerNormalized:
     def test_returns_float(self, embeddings_small: np.ndarray) -> None:
         params = BuildParams(eps=1.5, k=8, topk=4)
         _, _, _, gl = build_and_score(embeddings_small, params)
@@ -144,111 +145,111 @@ class TestFiedlerNormalized:
 
 # ── make_objective ──────────────────────────────────────────────────────────────
 
-class TestMakeObjective:
 
-    def test_returns_callable(self, embeddings_small: np.ndarray, fast_study_config: StudyConfig) -> None:  # type: ignore[name-defined]  # noqa: F821
+class TestMakeObjective:
+    def test_returns_callable(
+        self, embeddings_small: np.ndarray, fast_study_config: StudyConfig
+    ) -> None:  # type: ignore[name-defined]  # noqa: F821
         obj, cache = make_objective(embeddings_small, fast_study_config)
         assert callable(obj)
         assert isinstance(cache, dict)
 
-    def test_objective_returns_float(self, embeddings_small: np.ndarray, fast_study_config: StudyConfig) -> None:  # type: ignore[name-defined]  # noqa: F821
-        study      = optuna.create_study(direction="maximize")
-        obj, _     = make_objective(embeddings_small, fast_study_config)
+    def test_objective_returns_float(
+        self, embeddings_small: np.ndarray, fast_study_config: StudyConfig
+    ) -> None:  # type: ignore[name-defined]  # noqa: F821
+        study = optuna.create_study(direction="maximize")
+        obj, _ = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=1)
 
-        completed = [
-            t for t in study.trials
-            if t.state == optuna.trial.TrialState.COMPLETE
-        ]
+        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         if completed:
             assert isinstance(completed[0].value, float)
 
-    def test_objective_score_nonnegative(self, embeddings_small: np.ndarray, fast_study_config: StudyConfig) -> None:  # type: ignore[name-defined]  # noqa: F821
-        study      = optuna.create_study(direction="maximize")
-        obj, _     = make_objective(embeddings_small, fast_study_config)
+    def test_objective_score_nonnegative(
+        self, embeddings_small: np.ndarray, fast_study_config: StudyConfig
+    ) -> None:  # type: ignore[name-defined]  # noqa: F821
+        study = optuna.create_study(direction="maximize")
+        obj, _ = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
 
-        completed = [
-            t for t in study.trials
-            if t.state == optuna.trial.TrialState.COMPLETE
-        ]
+        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         for t in completed:
             assert t.value >= 0.0
 
-    def test_user_attrs_populated(self, embeddings_small: np.ndarray, fast_study_config: StudyConfig) -> None:  # type: ignore[name-defined]  # noqa: F821
-        study      = optuna.create_study(direction="maximize")
-        obj, _     = make_objective(embeddings_small, fast_study_config)
+    def test_user_attrs_populated(
+        self, embeddings_small: np.ndarray, fast_study_config: StudyConfig
+    ) -> None:  # type: ignore[name-defined]  # noqa: F821
+        study = optuna.create_study(direction="maximize")
+        obj, _ = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
 
-        completed = [
-            t for t in study.trials
-            if t.state == optuna.trial.TrialState.COMPLETE
-        ]
+        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         if completed:
             attrs = completed[0].user_attrs
-            assert "fiedler"    in attrs
+            assert "fiedler" in attrs
             assert "var_lambda" in attrs
-            assert "mrr_proxy"  in attrs
-            assert "tau"        in attrs
-            assert "n_sample"   in attrs
-            assert "n_probe"    in attrs
+            assert "mrr_proxy" in attrs
+            assert "tau" in attrs
+            assert "n_sample" in attrs
+            assert "n_probe" in attrs
 
-    def test_three_params_suggested(self, embeddings_small: np.ndarray, fast_study_config: StudyConfig) -> None:  # type: ignore[name-defined]  # noqa: F821
-        study      = optuna.create_study(direction="maximize")
-        obj, _     = make_objective(embeddings_small, fast_study_config)
+    def test_three_params_suggested(
+        self, embeddings_small: np.ndarray, fast_study_config: StudyConfig
+    ) -> None:  # type: ignore[name-defined]  # noqa: F821
+        study = optuna.create_study(direction="maximize")
+        obj, _ = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
 
-        completed = [
-            t for t in study.trials
-            if t.state == optuna.trial.TrialState.COMPLETE
-        ]
+        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         if completed:
             assert set(completed[0].params.keys()) == {"eps", "k", "tau"}
 
-    def test_sample_n_respected(self, embeddings_medium: np.ndarray, fast_study_config: StudyConfig) -> None:  # type: ignore[name-defined]  # noqa: F821
-        cfg          = fast_study_config
-        cfg.sample_n = 50   # force subsampling on the 600-item fixture
-        study        = optuna.create_study(direction="maximize")
-        obj, _       = make_objective(embeddings_medium, cfg)
+    def test_sample_n_respected(
+        self, embeddings_medium: np.ndarray, fast_study_config: StudyConfig
+    ) -> None:  # type: ignore[name-defined]  # noqa: F821
+        cfg = fast_study_config
+        cfg.sample_n = 50  # force subsampling on the 600-item fixture
+        study = optuna.create_study(direction="maximize")
+        obj, _ = make_objective(embeddings_medium, cfg)
         study.optimize(obj, n_trials=1)
 
-        completed = [
-            t for t in study.trials
-            if t.state == optuna.trial.TrialState.COMPLETE
-        ]
+        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         if completed:
             assert completed[0].user_attrs["n_sample"] == 50
 
     def test_best_cache_populated_when_full_corpus(
-        self, embeddings_small: np.ndarray, fast_study_config: StudyConfig  # type: ignore[name-defined]  # noqa: F821
+        self,
+        embeddings_small: np.ndarray,
+        fast_study_config: StudyConfig,  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
         """best_cache is filled when sample_n=None (full corpus path)."""
-        study      = optuna.create_study(direction="maximize")
+        study = optuna.create_study(direction="maximize")
         obj, cache = make_objective(embeddings_small, fast_study_config)
         study.optimize(obj, n_trials=fast_study_config.n_trials)
 
-        completed = [
-            t for t in study.trials
-            if t.state == optuna.trial.TrialState.COMPLETE
-        ]
+        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         if completed:
             assert "aspace" in cache
-            assert "gl"     in cache
-            assert "score"  in cache
+            assert "gl" in cache
+            assert "score" in cache
             assert cache["score"] > 0.0
 
     def test_best_cache_empty_when_subsampling(
-        self, embeddings_medium: np.ndarray, fast_study_config: StudyConfig  # type: ignore[name-defined]  # noqa: F821
+        self,
+        embeddings_medium: np.ndarray,
+        fast_study_config: StudyConfig,  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
         """best_cache stays empty when sample_n is set (subsample path)."""
         fast_study_config.sample_n = 50
-        study      = optuna.create_study(direction="maximize")
+        study = optuna.create_study(direction="maximize")
         obj, cache = make_objective(embeddings_medium, fast_study_config)
         study.optimize(obj, n_trials=1)
         assert cache == {}
 
     def test_flat_embeddings_all_pruned_or_zero(
-        self, embeddings_flat: np.ndarray, flat_study_config: StudyConfig  # type: ignore[name-defined]  # noqa: F821
+        self,
+        embeddings_flat: np.ndarray,
+        flat_study_config: StudyConfig,  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
         """
         On near-identical embeddings with eps bounds below the data scale,
@@ -259,13 +260,13 @@ class TestMakeObjective:
         the 0.01-scaled vectors, keeping the test deterministic regardless
         of test collection order.
         """
-        study      = optuna.create_study(direction="maximize")
-        obj, _     = make_objective(embeddings_flat, flat_study_config)
+        study = optuna.create_study(direction="maximize")
+        obj, _ = make_objective(embeddings_flat, flat_study_config)
         study.optimize(obj, n_trials=flat_study_config.n_trials)
 
         for t in study.trials:
             is_pruned = t.state == optuna.trial.TrialState.PRUNED
-            is_zero   = t.value == 0.0 if t.value is not None else True
+            is_zero = t.value == 0.0 if t.value is not None else True
             assert is_pruned or is_zero, (
                 f"Expected pruned or zero score on flat embeddings, "
                 f"got state={t.state} value={t.value}"
@@ -298,6 +299,7 @@ class TestMakeObjective:
         probes with no hits (#37). The objective must prune via the
         row_widths guard, not crash with TypeError before it.
         """
+
         class FakeAspace:
             def lambdas(self) -> list[float]:
                 return list(np.linspace(0.1, 0.9, len(embeddings_small)))
@@ -324,16 +326,13 @@ class TestMakeObjective:
             def lambdas(self) -> list[float]:
                 return list(np.linspace(0.1, 0.9, n_items))
 
-            def search_batch(
-                self, queries: object, gl: object, tau: float
-            ) -> list[Any]:
+            def search_batch(self, queries: object, gl: object, tau: float) -> list[Any]:
                 out = []
                 for r in range(len(queries)):
                     if r % 2 == 0:
-                        out.append([
-                            (i * 7 % n_items, 1.0 / (j + 1))
-                            for j, i in enumerate(range(3))
-                        ])
+                        out.append(
+                            [(i * 7 % n_items, 1.0 / (j + 1)) for j, i in enumerate(range(3))]
+                        )
                     elif r % 4 == 1:
                         out.append(None)
                     else:
@@ -354,13 +353,12 @@ class TestMakeObjective:
         monkeypatch: object,
     ) -> None:
         """A None whole-batch return must prune via the `or []` guard, not crash."""
+
         class FakeAspace:
             def lambdas(self) -> list[float]:
                 return list(np.linspace(0.1, 0.9, len(embeddings_small)))
 
-            def search_batch(
-                self, queries: object, gl: object, tau: float
-            ) -> object:
+            def search_batch(self, queries: object, gl: object, tau: float) -> object:
                 return None
 
         self._stub_build_and_score(monkeypatch, FakeAspace())
@@ -380,7 +378,8 @@ class TestMakeObjective:
         import arrowspace
 
         with mock.patch.object(
-            arrowspace.ArrowSpaceBuilder, "build",
+            arrowspace.ArrowSpaceBuilder,
+            "build",
             side_effect=ValueError("boom"),
         ):
             study = optuna.create_study(direction="maximize")
@@ -398,13 +397,12 @@ class TestMakeObjective:
         monkeypatch: object,
     ) -> None:
         """A search_batch exception must be persisted on the pruned trial (#38)."""
+
         class FakeAspace:
             def lambdas(self) -> list[float]:
                 return list(np.linspace(0.1, 0.9, len(embeddings_small)))
 
-            def search_batch(
-                self, queries: object, gl: object, tau: float
-            ) -> object:
+            def search_batch(self, queries: object, gl: object, tau: float) -> object:
                 raise ValueError("search blew up")
 
         self._stub_build_and_score(monkeypatch, FakeAspace())
@@ -419,24 +417,17 @@ class TestMakeObjective:
     # ── zero-lambda probe anchors (issue #24) ─────────────────────────────────
 
     @staticmethod
-    def _make_zero_lambda_aspace(
-        embeddings: np.ndarray, zero_predicate: object
-    ) -> object:
+    def _make_zero_lambda_aspace(embeddings: np.ndarray, zero_predicate: object) -> object:
         """
         Fake aspace mimicking pyarrowspace search_batch: raises ValueError
         when a query anchor sits on a zero-lambda item (issue #24), maps
         each query back to its corpus index by value comparison.
         """
-        zero_set = {
-            i for i in range(len(embeddings)) if zero_predicate(i)
-        }
+        zero_set = {i for i in range(len(embeddings)) if zero_predicate(i)}
 
         class FakeAspace:
             def lambdas(self) -> list[float]:
-                return [
-                    0.0 if i in zero_set else 0.1 + i * 0.001
-                    for i in range(len(embeddings))
-                ]
+                return [0.0 if i in zero_set else 0.1 + i * 0.001 for i in range(len(embeddings))]
 
             def search_batch(self, queries: object, gl: object, tau: float) -> list[Any]:
                 out = []
@@ -445,9 +436,7 @@ class TestMakeObjective:
                         if np.allclose(q, embeddings[j]):
                             if j in zero_set:
                                 raise ValueError(f"Lambda is zero for query {j}")
-                            out.append(
-                                [(k, 1.0 / (r + 1)) for r, k in enumerate(range(3))]
-                            )
+                            out.append([(k, 1.0 / (r + 1)) for r, k in enumerate(range(3))])
                             break
                     else:
                         out.append(None)
@@ -466,9 +455,7 @@ class TestMakeObjective:
         for those anchors (#24); the objective must filter them out and
         complete the trial, not prune it.
         """
-        fake = self._make_zero_lambda_aspace(
-            embeddings_small, lambda i: i % 2 == 0
-        )
+        fake = self._make_zero_lambda_aspace(embeddings_small, lambda i: i % 2 == 0)
         self._stub_build_and_score(monkeypatch, fake)
         study = optuna.create_study(direction="maximize")
         obj, _ = make_objective(embeddings_small, fast_study_config)

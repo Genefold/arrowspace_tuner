@@ -4,6 +4,7 @@ test_api.py — tests for the one-liner convenience API.
 These tests exercise the public tune() / optuna() entry points.
 They require the arrowspace Rust wheel to be installed.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -22,6 +22,7 @@ Typical usage:
     # optional: save full report (requires [report] extra)
     tuner.save_report(out_dir="results")
 """
+
 from __future__ import annotations
 
 import json
@@ -127,48 +128,48 @@ class EpsTuner:
     def __init__(
         self,
         *,
-        n_trials:       int          = _DEFAULT_N_TRIALS,
-        sample_n:       int | None   = None,
-        seed:           int          = 54,
-        study_name:     str          = "arrowspace_tuner",
-        storage:        str | None   = None,
-        eps_low:        float        = 0.3,
-        eps_high:       float        = 4.0,
-        k_low:          int          = 3,
-        k_high:         int          = 40,
-        tau_low:        float        = 0.1,
-        tau_high:       float        = 1.0,
-        n_probe:        int          = 50,
-        n_jobs:         int          = 1,
-        max_clusters:   int | None   = None,
+        n_trials: int = _DEFAULT_N_TRIALS,
+        sample_n: int | None = None,
+        seed: int = 54,
+        study_name: str = "arrowspace_tuner",
+        storage: str | None = None,
+        eps_low: float = 0.3,
+        eps_high: float = 4.0,
+        k_low: int = 3,
+        k_high: int = 40,
+        tau_low: float = 0.1,
+        tau_high: float = 1.0,
+        n_probe: int = 50,
+        n_jobs: int = 1,
+        max_clusters: int | None = None,
         cluster_radius: float | None = None,
     ) -> None:
         self._cfg = StudyConfig(
-            n_trials       = n_trials,
-            sample_n       = sample_n,
-            seed           = seed,
-            study_name     = study_name,
-            storage        = storage,
-            eps_low        = eps_low,
-            eps_high       = eps_high,
-            k_low          = k_low,
-            k_high         = k_high,
-            tau_low        = tau_low,
-            tau_high       = tau_high,
-            n_probe        = n_probe,
-            n_jobs         = n_jobs,
-            max_clusters   = max_clusters,
-            cluster_radius = cluster_radius,
+            n_trials=n_trials,
+            sample_n=sample_n,
+            seed=seed,
+            study_name=study_name,
+            storage=storage,
+            eps_low=eps_low,
+            eps_high=eps_high,
+            k_low=k_low,
+            k_high=k_high,
+            tau_low=tau_low,
+            tau_high=tau_high,
+            n_probe=n_probe,
+            n_jobs=n_jobs,
+            max_clusters=max_clusters,
+            cluster_radius=cluster_radius,
         )
 
         # Results — populated by .fit()
-        self.best_params:     dict[str, Any] | None = None
-        self.best_score:      float | None          = None
-        self.best_fiedler:    float | None          = None
-        self.best_var_lambda: float | None          = None
-        self.best_mrr_proxy:  float | None          = None
-        self.best_tau:        float | None          = None   # query-time param, NOT in best_params
-        self.study:           optuna.Study | None   = None
+        self.best_params: dict[str, Any] | None = None
+        self.best_score: float | None = None
+        self.best_fiedler: float | None = None
+        self.best_var_lambda: float | None = None
+        self.best_mrr_proxy: float | None = None
+        self.best_tau: float | None = None  # query-time param, NOT in best_params
+        self.study: optuna.Study | None = None
         self._last_report_path: Path | None = None
 
     # ── public interface ─────────────────────────────────────────────────────────
@@ -192,9 +193,7 @@ class EpsTuner:
             If called before ``.fit()``.
         """
         if self.best_params is None:
-            raise RuntimeError(
-                "Call .fit() before accessing .graph_params."
-            )
+            raise RuntimeError("Call .fit() before accessing .graph_params.")
         return self.best_params
 
     def fit(
@@ -260,7 +259,10 @@ class EpsTuner:
 
         logger.info(
             "Starting EpsTuner: n_trials=%d  sample_n=%s  seed=%d  n_jobs=%d",
-            cfg.n_trials, cfg.sample_n, cfg.seed, cfg.n_jobs,
+            cfg.n_trials,
+            cfg.sample_n,
+            cfg.seed,
+            cfg.n_jobs,
         )
 
         # ── sampler: GPSampler → TPE multivariate fallback (#4) ─────────────────
@@ -276,17 +278,18 @@ class EpsTuner:
             # probe only — GPSampler needs torch at optimize() time
             import torch  # noqa: F401
             from optuna.samplers import GPSampler
+
             sampler: optuna.samplers.BaseSampler = GPSampler(
-                seed             = cfg.seed,
-                n_startup_trials = 4,
+                seed=cfg.seed,
+                n_startup_trials=4,
             )
             logger.info("Sampler: GPSampler (BoTorch backend)")
         except ImportError:
             sampler = optuna.samplers.TPESampler(
-                seed             = cfg.seed,
-                n_startup_trials = 4,       # default 10 → 4: more informed trials
-                multivariate     = True,    # joint posterior over (eps, k, tau)
-                group            = True,
+                seed=cfg.seed,
+                n_startup_trials=4,  # default 10 → 4: more informed trials
+                multivariate=True,  # joint posterior over (eps, k, tau)
+                group=True,
             )
             logger.info(
                 "Sampler: TPESampler(multivariate=True, n_startup_trials=4) "
@@ -295,34 +298,31 @@ class EpsTuner:
 
         # ── pruner ──────────────────────────────────────────────────────────────
         pruner = optuna.pruners.MedianPruner(
-            n_startup_trials = 4,
-            n_warmup_steps   = 0,
+            n_startup_trials=4,
+            n_warmup_steps=0,
         )
 
         # ── create study ─────────────────────────────────────────────────────────
         study = optuna.create_study(
-            direction      = "maximize",
-            study_name     = cfg.study_name,
-            storage        = cfg.storage,
-            sampler        = sampler,
-            pruner         = pruner,
-            load_if_exists = cfg.storage is not None,
+            direction="maximize",
+            study_name=cfg.study_name,
+            storage=cfg.storage,
+            sampler=sampler,
+            pruner=pruner,
+            load_if_exists=cfg.storage is not None,
         )
 
         # ── warm-start: enqueue one known-good anchor trial (#4) ───────────────
         # Gives the surrogate a reasonable starting point so trial 0 is
         # never wasted on an arbitrary corner of the search space.
         # Only enqueue when starting fresh (not resuming from storage).
-        completed_so_far = [
-            t for t in study.trials
-            if t.state == optuna.trial.TrialState.COMPLETE
-        ]
+        completed_so_far = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         if not completed_so_far:
             study.enqueue_trial(
                 {
-                    "eps": max(cfg.eps_low,  min(cfg.eps_high,  1.0)),
-                    "k":   max(cfg.k_low,    min(cfg.k_high,    15)),
-                    "tau": max(cfg.tau_low,  min(cfg.tau_high,  0.5)),
+                    "eps": max(cfg.eps_low, min(cfg.eps_high, 1.0)),
+                    "k": max(cfg.k_low, min(cfg.k_high, 15)),
+                    "tau": max(cfg.tau_low, min(cfg.tau_high, 0.5)),
                 },
                 skip_if_exists=True,
             )
@@ -333,26 +333,20 @@ class EpsTuner:
         study.optimize(objective, n_trials=cfg.n_trials, n_jobs=cfg.n_jobs)
 
         # ── guard: all trials pruned ───────────────────────────────────────────
-        completed = [
-            t for t in study.trials
-            if t.state == optuna.trial.TrialState.COMPLETE
-        ]
+        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         if not completed:
             # If trials failed with exceptions (not statistical pruning),
             # surface the actual errors instead of the generic corpus advice.
-            build_errors = sorted({
-                t.user_attrs["build_error"]
-                for t in study.trials
-                if "build_error" in t.user_attrs
-            })
+            build_errors = sorted(
+                {t.user_attrs["build_error"] for t in study.trials if "build_error" in t.user_attrs}
+            )
             detail = ""
             if build_errors:
                 shown = build_errors[:3]
                 detail = (
                     f" The trials failed with {len(build_errors)} distinct "
                     f"exception(s) — these are build errors, not corpus/"
-                    f"bounds problems:\n"
-                    + "\n".join(f"  - {e}" for e in shown)
+                    f"bounds problems:\n" + "\n".join(f"  - {e}" for e in shown)
                 )
             raise RuntimeError(
                 "All Optuna trials were pruned — no valid graph was built. "
@@ -362,27 +356,26 @@ class EpsTuner:
                 "bounds too narrow. "
                 f"Current bounds: eps=[{cfg.eps_low}, {cfg.eps_high}]. "
                 "Try widening eps_low/eps_high, reducing k_high, or increasing "
-                "sample_n."
-                + detail
+                "sample_n." + detail
             )
 
         # ── store results ─────────────────────────────────────────────────────
-        best                 = study.best_trial
-        raw_params           = best.params          # {"eps": float, "k": int, "tau": float}
+        best = study.best_trial
+        raw_params = best.params  # {"eps": float, "k": int, "tau": float}
 
-        self.study           = study
-        self.best_tau        = float(raw_params["tau"])  # saved separately — query-time only
-        self.best_params     = {
-            "eps":   raw_params["eps"],
-            "k":     raw_params["k"],
-            "topk":  max(1, raw_params["k"] // 2),
-            "p":     2.0,
+        self.study = study
+        self.best_tau = float(raw_params["tau"])  # saved separately — query-time only
+        self.best_params = {
+            "eps": raw_params["eps"],
+            "k": raw_params["k"],
+            "topk": max(1, raw_params["k"] // 2),
+            "p": 2.0,
             "sigma": None,
         }
-        self.best_score      = best.value
-        self.best_fiedler    = best.user_attrs.get("fiedler")
+        self.best_score = best.value
+        self.best_fiedler = best.user_attrs.get("fiedler")
         self.best_var_lambda = best.user_attrs.get("var_lambda")
-        self.best_mrr_proxy  = best.user_attrs.get("mrr_proxy")
+        self.best_mrr_proxy = best.user_attrs.get("mrr_proxy")
 
         logger.info(
             "EpsTuner finished | best score=%.6f | eps=%.5f k=%d tau=%.3f",
@@ -420,10 +413,10 @@ class EpsTuner:
             raise RuntimeError("Call .fit() before .save_report().")
 
         from .reporting import save_results
+
         path = save_results(self.study, out_dir=out_dir)
         self._last_report_path = path
         return path
-
 
     def load_graph_params(self, out_dir: str = "results") -> dict[str, Any]:
         """
@@ -465,28 +458,25 @@ class EpsTuner:
         # Read the JSON
         json_path = report_dir / "best_params.json"
         if not json_path.exists():
-            raise FileNotFoundError(
-                f"Could not find 'best_params.json' in {report_dir}"
-            )
+            raise FileNotFoundError(f"Could not find 'best_params.json' in {report_dir}")
         with open(json_path, encoding="utf-8") as f:
             data = json.load(f)
 
         # params are nested under "params" key — not at the top level
         params = data.get("params", {})
         eps = params.get("eps")
-        k   = params.get("k")
+        k = params.get("k")
 
         if eps is None or k is None:
             raise ValueError(
-                f"best_params.json is missing required keys under 'params'. "
-                f"Found params: {params}"
+                f"best_params.json is missing required keys under 'params'. Found params: {params}"
             )
 
         return {
-            "eps":   float(eps),
-            "k":     int(k),
-            "topk":  max(1, int(k) // 2),
-            "p":     2.0,
+            "eps": float(eps),
+            "k": int(k),
+            "topk": max(1, int(k) // 2),
+            "p": 2.0,
             "sigma": None,
         }
 
@@ -500,6 +490,7 @@ class EpsTuner:
             the .graph_params property for in-session access after .fit().
         """
         import warnings
+
         warnings.warn(
             "load_best_params() is deprecated, use load_graph_params() instead.",
             DeprecationWarning,
@@ -514,17 +505,11 @@ class EpsTuner:
         Returns the (possibly cast) array so callers always work with float64.
         """
         if not isinstance(embeddings, np.ndarray):
-            raise ValueError(
-                f"embeddings must be np.ndarray, got {type(embeddings).__name__}"
-            )
+            raise ValueError(f"embeddings must be np.ndarray, got {type(embeddings).__name__}")
         if embeddings.ndim != 2:
-            raise ValueError(
-                f"embeddings must be 2D (N, D), got shape {embeddings.shape}"
-            )
+            raise ValueError(f"embeddings must be 2D (N, D), got shape {embeddings.shape}")
         if embeddings.dtype != np.float64:
-            logger.warning(
-                "embeddings dtype is %s — casting to float64", embeddings.dtype
-            )
+            logger.warning("embeddings dtype is %s — casting to float64", embeddings.dtype)
             embeddings = embeddings.astype(np.float64)
         return embeddings
 
@@ -534,7 +519,8 @@ class EpsTuner:
             f"best_score={self.best_score:.6f} "
             f"params={self.best_params} "
             f"best_tau={self.best_tau:.3f}"
-            if fitted else "not fitted"
+            if fitted
+            else "not fitted"
         )
         return (
             f"EpsTuner("

@@ -50,11 +50,11 @@ def gl_to_scipy(gl: PyGraphLaplacian) -> sp.csr_matrix:
     ``gl.to_csr()`` returns a 3-tuple ``(data, indices, indptr)``.
     The matrix shape is obtained separately via ``gl.shape()``.
     """
-    raw     = gl.to_csr()   # returns (data, indices, indptr) — a 3-tuple
-    shape   = gl.shape()
-    data    = np.asarray(raw[0], dtype=np.float64)
+    raw = gl.to_csr()  # returns (data, indices, indptr) — a 3-tuple
+    shape = gl.shape()
+    data = np.asarray(raw[0], dtype=np.float64)
     indices = np.asarray(raw[1], dtype=np.int32)
-    indptr  = np.asarray(raw[2], dtype=np.int32)
+    indptr = np.asarray(raw[2], dtype=np.int32)
     return sp.csr_matrix((data, indices, indptr), shape=shape)
 
 
@@ -100,25 +100,23 @@ def fiedler_normalized_from_csr(L: sp.csr_matrix, nnz: int) -> float:
 
         # Degenerate guard: fewer edges than nodes → nearly empty graph
         if nnz <= n:
-            logger.warning(
-                "Degenerate graph NNZ=%d <= N=%d — returning 0.0", nnz, n
-            )
+            logger.warning("Degenerate graph NNZ=%d <= N=%d — returning 0.0", nnz, n)
             return 0.0
 
         # Normalise: L_norm = D^{-1/2} L D^{-1/2}
-        diag       = np.array(L.diagonal(), dtype=np.float64)
-        safe_diag  = np.where(diag > 1e-12, diag, 1e-12)
+        diag = np.array(L.diagonal(), dtype=np.float64)
+        safe_diag = np.where(diag > 1e-12, diag, 1e-12)
         d_inv_sqrt = sp.diags(1.0 / np.sqrt(safe_diag))
-        L_norm     = d_inv_sqrt @ L @ d_inv_sqrt
+        L_norm = d_inv_sqrt @ L @ d_inv_sqrt
 
         # ── eigenvalue computation ──────────────────────────────────────────
         if n <= 5_000:
             # eigvalsh guarantees ascending order → no sort needed
             all_vals = np.linalg.eigvalsh(L_norm.toarray())
-            fiedler  = max(0.0, float(np.real(all_vals[1])))
+            fiedler = max(0.0, float(np.real(all_vals[1])))
         else:
             # ARPACK output is NOT sorted; sorted() is required
-            vals    = spla.eigsh(
+            vals = spla.eigsh(
                 L_norm,
                 k=2,
                 sigma=0.0,
@@ -131,7 +129,10 @@ def fiedler_normalized_from_csr(L: sp.csr_matrix, nnz: int) -> float:
 
         logger.debug(
             "fiedler_normalized: λ₂=%.6f  NNZ=%d  N=%d  path=%s",
-            fiedler, nnz, n, "dense" if n <= 5_000 else "shift-invert",
+            fiedler,
+            nnz,
+            n,
+            "dense" if n <= 5_000 else "shift-invert",
         )
         return fiedler
 
@@ -158,11 +159,11 @@ def fiedler_normalized(gl: PyGraphLaplacian) -> float:
     float
         λ₂ ∈ [0, 1].
     """
-    raw     = gl.to_csr()
-    shape   = gl.shape()
-    data    = np.asarray(raw[0], dtype=np.float64)
+    raw = gl.to_csr()
+    shape = gl.shape()
+    data = np.asarray(raw[0], dtype=np.float64)
     indices = np.asarray(raw[1], dtype=np.int32)
-    indptr  = np.asarray(raw[2], dtype=np.int32)
-    L       = sp.csr_matrix((data, indices, indptr), shape=shape)
-    nnz     = len(data)
+    indptr = np.asarray(raw[2], dtype=np.int32)
+    L = sp.csr_matrix((data, indices, indptr), shape=shape)
+    nnz = len(data)
     return fiedler_normalized_from_csr(L, nnz)
