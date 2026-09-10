@@ -310,6 +310,10 @@ def test_report_failure_has_no_partial_graph_result(
 def test_save_report_true_returns_report_path(
     tmp_path: Path, fast_tune_request: TuneRequest
 ) -> None:
+    # the real save_report path requires the [report] extra (plotly/pandas);
+    # the missing-extra behaviour is covered by the stubbed ImportError test
+    pytest.importorskip("plotly")
+    pytest.importorskip("pandas")
     report_dir = tmp_path / "reports"
     request = dataclasses.replace(fast_tune_request, report_dir=report_dir, save_report=True)
     result = run_tuning(request)
