@@ -128,7 +128,7 @@ jobs:
           . .venv-wheel/bin/activate
           uv pip install "arrowspace==0.28.1"
           uv pip install --no-deps dist/arrowspace_tuner-*.whl
-          uv pip install "numpy>=2.4.4" "optuna>=4.8.0" "scipy>=1.17.1"
+          uv pip install "numpy>=2.4.4" "optuna>=4.8.0" "scipy>=1.17.1" "click>=8.1"
 
       - name: Verify installed distribution
         run: |
