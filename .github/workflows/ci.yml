@@ -72,7 +72,7 @@ jobs:
           . .venv-ci/bin/activate
           uv pip install "arrowspace==${{ matrix.arrowspace-version }}"
           uv pip install --no-deps .
-          uv pip install "numpy>=2.4.4" "optuna>=4.8.0" "scipy>=1.17.1" "pytest>=8.0" "pytest-cov>=5.0"
+          uv pip install "numpy>=2.4.4" "optuna>=4.8.0" "scipy>=1.17.1" "mcp>=1.0.0" "pytest>=8.0" "pytest-cov>=5.0"
 
       - name: Verify resolved ArrowSpace version
         run: |
@@ -143,3 +143,21 @@ jobs:
           cd /tmp
           python "$GITHUB_WORKSPACE/examples/quickstart.py"
           python "$GITHUB_WORKSPACE/examples/power_user.py"
+
+      - name: Smoke-test the installed CLI
+        run: |
+          . .venv-wheel/bin/activate
+          cd /tmp
+          arrowspace-tuner version --format json
+          arrowspace-tuner validate "$GITHUB_WORKSPACE/tests/fixtures/embeddings.npy" --format json
+          arrowspace-tuner tune "$GITHUB_WORKSPACE/tests/fixtures/embeddings.npy" \
+            --trials 3 \
+            --format json
+
+      - name: Smoke-test the installed MCP entry point
+        run: |
+          . .venv-wheel/bin/activate
+          cd /tmp
+          uv pip install "mcp>=1.0.0"
+          ARROWSPACE_TUNER_ALLOWED_ROOTS="$GITHUB_WORKSPACE/tests/fixtures" \
+            arrowspace-tuner mcp --help

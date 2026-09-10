@@ -6,6 +6,52 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.0] — 2026-09-09
+
+### Added
+
+- `arrowspace-tuner` Click CLI for local `.npy` and `.npz` embedding
+  matrices, with `tune`, `validate`, `inspect`, `version`, and `mcp`
+  commands. The console script is also reachable as
+  `python -m arrowspace_tuner`.
+- Human-readable text output and stable JSON machine output: exactly one
+  JSON document on stdout, all logs and error envelopes on stderr.
+- Input validation and embedding inspection commands, including SHA-256
+  fingerprinting and L2-norm diagnostics.
+- Optional stdio MCP server for local LLM clients
+  (`pip install "arrowspace-tuner[mcp]"`) exposing exactly four tools:
+  `inspect_embeddings`, `tune_graph`, `build_instruction`, and
+  `get_tuner_info`.
+- Stable `TuneResult` schema (`schema_version` "1.0") with graph
+  parameters, the separate search-time `best_tau`, diagnostics, input
+  metadata, version information, and warnings — shared by the Python
+  service, CLI, and MCP server (new `arrowspace_tuner.service` layer).
+- Local MCP path restrictions using `ARROWSPACE_TUNER_ALLOWED_ROOTS`
+  (required) plus `ARROWSPACE_TUNER_MAX_INPUT_BYTES`,
+  `ARROWSPACE_TUNER_MAX_TRIALS`, and `ARROWSPACE_TUNER_MAX_N_JOBS` limits.
+- Atomic `--output` persistence (temp file, fsync, atomic replace).
+- Documented exit codes: 0 ok, 2 usage, 3 invalid input, 4 tuning failure,
+  5 output failure, 6 interrupted, 7 internal error.
+
+### Security
+
+- MCP supports local `.npy` and `.npz` files only.
+- Remote URLs, pickle/object arrays, and unconstrained filesystem paths
+  are rejected before any data is loaded.
+- The server does not upload embeddings or make network requests.
+
+### Notes
+
+- `graph_params` contains only ArrowSpace build-time keys: `eps`, `k`,
+  `topk`, `p`, and `sigma` — never `top_k`, never `tau`.
+- `best_tau` is a separate search-time result; use it at query time:
+  `aspace.search(q, gl, tau=result["best_tau"])`.
+- The MCP server calls the shared service directly — the CLI is never
+  invoked through subprocess from MCP.
+- This release does not change the existing Python API (`tune`, `EpsTuner`).
+
+---
+
 ## [0.4.2] — 2026-09-09
 
 ### Fixed

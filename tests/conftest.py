@@ -6,6 +6,8 @@ no arrowspace Rust wheel required for the fixtures themselves.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -146,4 +148,52 @@ def flat_study_config() -> StudyConfig:
         tau_low    = 0.3,
         tau_high   = 1.2,
         n_probe    = 10,
+    )
+
+
+# ── CLI / MCP / service fixtures (issue #17) ──────────────────────────────────
+
+@pytest.fixture
+def npy_file(tmp_path: Path, embeddings_small: np.ndarray) -> Path:
+    """A valid .npy file holding embeddings_small."""
+    path = tmp_path / "embeddings.npy"
+    np.save(path, embeddings_small)
+    return path
+
+
+@pytest.fixture
+def npz_single_file(tmp_path: Path, embeddings_small: np.ndarray) -> Path:
+    """A .npz file containing exactly one array."""
+    path = tmp_path / "single.npz"
+    np.savez(path, embeddings=embeddings_small)
+    return path
+
+
+@pytest.fixture
+def npz_multi_file(tmp_path, embeddings_small, embeddings_medium) -> Path:
+    """A .npz file containing two arrays — requires an explicit key."""
+    path = tmp_path / "multi.npz"
+    np.savez(path, small=embeddings_small, medium=embeddings_medium)
+    return path
+
+
+@pytest.fixture
+def fast_tune_request(npy_file: Path) -> TuneRequest:
+    """
+    Fast TuneRequest for service/CLI/MCP tests.
+
+    3 trials, small bounds centred on a region known to produce valid
+    graphs for embeddings_small (mirrors fast_study_config).
+    """
+    from arrowspace_tuner.models import TuneRequest
+
+    return TuneRequest(
+        input_path = npy_file,
+        n_trials   = 3,
+        seed       = SEED,
+        eps_low    = 0.5,
+        eps_high   = 2.0,
+        k_low      = 3,
+        k_high     = 10,
+        n_probe    = 20,
     )

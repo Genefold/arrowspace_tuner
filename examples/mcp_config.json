@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "arrowspace-tuner": {
+      "command": "arrowspace-tuner",
+      "args": ["mcp"],
+      "env": {
+        "ARROWSPACE_TUNER_ALLOWED_ROOTS": "/workspace:/data",
+        "ARROWSPACE_TUNER_MAX_INPUT_BYTES": "2147483648",
+        "ARROWSPACE_TUNER_MAX_TRIALS": "100",
+        "ARROWSPACE_TUNER_MAX_N_JOBS": "4"
+      }
+    }
+  }
+}

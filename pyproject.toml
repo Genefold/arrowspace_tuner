@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arrowspace_tuner"
-version = "0.4.2"
+version = "0.5.0"
 description = "Hyperparameter discovery (eps auto-tuning) for ArrowSpace via Optuna"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -38,10 +38,14 @@ classifiers = [
 # the upper bound is the tested ceiling, not a known incompatibility.
 dependencies = [
     "arrowspace>=0.26.0,<0.29",
+    "click>=8.1",
     "numpy>=2.4.4",
     "optuna>=4.8.0",
     "scipy>=1.17.1",
 ]
+
+[project.scripts]
+arrowspace-tuner = "arrowspace_tuner.cli:main"
 
 # ── Optional extras ─────────────────────────────────────────────────────────
 [project.optional-dependencies]
@@ -53,6 +57,13 @@ report = [
     "pandas>=3.0.0",
 ]
 
+# pip install arrowspace_tuner[mcp]
+# Optional local stdio MCP server for LLM clients (arrowspace-tuner mcp).
+# The base package never depends on MCP.
+mcp = [
+    "mcp>=1.0.0",
+]
+
 # pip install arrowspace_tuner[dev]
 # Full dev environment: testing + linting + type checking
 dev = [
@@ -60,6 +71,7 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.9",
     "mypy>=1.15",
+    "mcp>=1.0.0",     # needed to test mcp_server.py
     "plotly>=6.7.0",   # needed to test reporting.py
     "pandas>=3.0.0",
 ]
