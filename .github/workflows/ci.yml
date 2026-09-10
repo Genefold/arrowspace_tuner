@@ -154,6 +154,31 @@ jobs:
             --trials 3 \
             --format json
 
+      # --save-report without --report-dir must fail predictably (exit 3),
+      # and an unwritable --output target must fail with exit 5.
+      - name: Smoke-test CLI failure contracts
+        run: |
+          . .venv-wheel/bin/activate
+          cd /tmp
+          set +e
+          out=$(arrowspace-tuner tune "$GITHUB_WORKSPACE/tests/fixtures/embeddings.npy" \
+            --trials 3 --save-report --format json)
+          code=$?
+          set -e
+          echo "$out"
+          [ "$code" -eq 3 ] || { echo "expected exit 3, got $code"; exit 1; }
+          echo "$out" | grep -q "missing_report_dir"
+
+          mkdir -p /tmp/output-target
+          set +e
+          out=$(arrowspace-tuner tune "$GITHUB_WORKSPACE/tests/fixtures/embeddings.npy" \
+            --trials 3 --format json --output /tmp/output-target)
+          code=$?
+          set -e
+          echo "$out"
+          [ "$code" -eq 5 ] || { echo "expected exit 5, got $code"; exit 1; }
+          echo "$out" | grep -q "output_write_failed"
+
       - name: Smoke-test the installed MCP entry point
         run: |
           . .venv-wheel/bin/activate
@@ -161,3 +186,18 @@ jobs:
           uv pip install "mcp>=1.0.0"
           ARROWSPACE_TUNER_ALLOWED_ROOTS="$GITHUB_WORKSPACE/tests/fixtures" \
             arrowspace-tuner mcp --help
+
+      # Invalid limits are server configuration errors: the server must
+      # refuse to start with a message naming the offending variable.
+      - name: Smoke-test MCP limit validation
+        run: |
+          . .venv-wheel/bin/activate
+          cd /tmp
+          set +e
+          out=$(ARROWSPACE_TUNER_ALLOWED_ROOTS="$GITHUB_WORKSPACE/tests/fixtures" \
+            ARROWSPACE_TUNER_MAX_TRIALS=0 arrowspace-tuner mcp 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          [ "$code" -ne 0 ] || { echo "expected non-zero exit"; exit 1; }
+          echo "$out" | grep -q "ARROWSPACE_TUNER_MAX_TRIALS must be a positive integer"

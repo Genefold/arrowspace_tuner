@@ -146,8 +146,23 @@ Other commands: `inspect RESULT.json` (re-read a written TuneResult),
 `version`, and `mcp`. Run `arrowspace-tuner --help` for every option.
 
 Exit codes: `0` ok · `2` CLI usage error · `3` invalid input · `4` tuning
-failed (all trials pruned) · `5` output/report write failure · `6`
-interrupted · `7` unexpected internal error.
+failed (all trials pruned) · `5` requested output or report could not be
+written · `6` interrupted · `7` unexpected internal error.
+
+### Reports
+
+`--save-report` requires `--report-dir`.
+
+If report generation fails, the command returns exit code `5` and, in JSON
+mode, returns `status: "output_error"`. No successful tuning result is emitted
+for a requested report that could not be persisted.
+
+### Small corpora
+
+The valid upper bound for `k` is `n_items - 1`.
+
+- If `k_high` exceeds that value, the CLI clips it and returns a warning.
+- If `k_low` exceeds that value, the CLI rejects the request before tuning.
 
 Build with the result:
 
@@ -173,6 +188,10 @@ hits = aspace.search(
 
 ## JSON output for automation
 
+In JSON mode, stdout always contains exactly one JSON result object, whether
+the operation succeeds or fails. stderr contains logs and optional
+human-readable diagnostics only; it never contains a second JSON envelope.
+
 `--format json` prints exactly one JSON document on stdout; logs, warnings,
 and progress go to stderr only, so the stream is safe to pipe. The schema
 (`schema_version: "1.0"`) is stable:
@@ -195,9 +214,11 @@ and progress go to stderr only, so the stream is safe to pipe. The schema
 
 Guarantees: `graph_params` uses the native `topk` key (never `top_k`) and
 never contains `tau`; `best_tau` is a top-level search-time key; failures
-also print valid JSON (`status: "validation_error" | "tuning_error"`, with
-`error_code` and `error_message`) and exit non-zero. `--output` writes the
-same document atomically (temp file + fsync + atomic replace).
+also print valid JSON (`status: "validation_error" | "tuning_error" |
+"output_error"`, with `error_code` and `error_message`) and exit non-zero;
+a declared output failure never carries a partial graph configuration.
+`--output` writes the same document atomically (temp file + fsync + atomic
+replace).
 
 ## MCP server
 
@@ -235,7 +256,8 @@ See [`examples/mcp_usage.md`](examples/mcp_usage.md) and
   `ARROWSPACE_TUNER_MAX_INPUT_BYTES` (default 2 GiB) are rejected.
 - `ARROWSPACE_TUNER_MAX_TRIALS` (default 100) and
   `ARROWSPACE_TUNER_MAX_N_JOBS` (default 4) cap tuning requests before
-  Optuna starts.
+  Optuna starts. All MCP environment limits must be positive integers.
+  Zero and negative values are invalid server configuration.
 - No embedding data is uploaded; reports are written only when explicitly
   requested, beneath an allowed root, and never overwrite an existing
   report directory.

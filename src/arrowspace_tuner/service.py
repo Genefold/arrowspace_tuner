@@ -9,6 +9,7 @@ Both adapters call exactly these two functions and nothing else from the
 tuner internals; neither may touch private EpsTuner methods, and the MCP
 server must never shell out to the CLI.
 """
+
 from __future__ import annotations
 
 import logging
@@ -55,8 +56,7 @@ def validate_request(request: TuneRequest) -> None:
         )
     if request.eps_high <= request.eps_low:
         raise InputValidationError(
-            f"eps_high must be greater than eps_low; got [{request.eps_low}, "
-            f"{request.eps_high}].",
+            f"eps_high must be greater than eps_low; got [{request.eps_low}, {request.eps_high}].",
             code="invalid_eps_bounds",
         )
     if request.k_low < 1:
@@ -80,8 +80,7 @@ def validate_request(request: TuneRequest) -> None:
         )
     if request.tau_high < request.tau_low:
         raise InputValidationError(
-            f"tau_high must be >= tau_low; got [{request.tau_low}, "
-            f"{request.tau_high}].",
+            f"tau_high must be >= tau_low; got [{request.tau_low}, {request.tau_high}].",
             code="invalid_tau_bounds",
         )
     if request.n_probe < 1:
@@ -91,6 +90,10 @@ def validate_request(request: TuneRequest) -> None:
     if request.n_jobs < 1:
         raise InputValidationError(
             f"n_jobs must be >= 1; got {request.n_jobs}.", code="invalid_n_jobs"
+        )
+    if request.save_report and request.report_dir is None:
+        raise InputValidationError(
+            "save_report=true requires report_dir.", code="missing_report_dir"
         )
 
 
@@ -161,7 +164,43 @@ def run_tuning(request: TuneRequest) -> TuneResult:
 
     warnings_list: list[str] = list(input_info.warnings)
 
-    # ── 4. dry run: no EpsTuner, no Optuna study ─────────────────────────────
+    # ── corpus-aware neighbour bounds: the largest legal k is n_items - 1 ────
+    max_valid_k = input_info.n_items - 1
+    if request.k_low > max_valid_k:
+        return _error_result(
+            "validation_error",
+            "k_low_exceeds_corpus",
+            (
+                f"k_low={request.k_low} exceeds the maximum valid neighbour "
+                f"count {max_valid_k} for a corpus with "
+                f"{input_info.n_items} rows."
+            ),
+            request,
+            input_info=input_info,
+            warnings=tuple(warnings_list),
+        )
+    effective_k_high = min(request.k_high, max_valid_k)
+    if effective_k_high < request.k_high:
+        warnings_list.append(_io.k_high_warning(input_info.n_items))
+    if effective_k_high == request.k_low:
+        # EpsTuner searches k_low < k_high; a corpus this small leaves a
+        # single legal k and no search room — reject before tuning instead
+        # of failing inside Optuna.
+        return _error_result(
+            "validation_error",
+            "k_range_too_narrow",
+            (
+                f"Corpus with {input_info.n_items} rows leaves a single valid "
+                f"neighbour count (k={request.k_low}); tuning requires "
+                "k_low < k_high. Use a larger corpus "
+                f"(n_items >= {request.k_low + 2}) or lower k_low."
+            ),
+            request,
+            input_info=input_info,
+            warnings=tuple(warnings_list),
+        )
+
+    # ── dry run: no EpsTuner, no Optuna study ────────────────────────────────
     if request.dry_run:
         return TuneResult(
             schema_version=SCHEMA_VERSION,
@@ -174,13 +213,6 @@ def run_tuning(request: TuneRequest) -> TuneResult:
             arrowspace_version=_arrowspace_version(),
             warnings=tuple(warnings_list),
         )
-
-    # ── clip k_high truthfully when the corpus is smaller than the bound ─────
-    effective_k_high = request.k_high
-    if request.k_high > input_info.n_items - 1:
-        warnings_list.append(_io.k_high_warning(input_info.n_items))
-        if input_info.n_items - 1 >= request.k_low:
-            effective_k_high = input_info.n_items - 1
 
     # ── 5-7. run the shared EpsTuner ─────────────────────────────────────────
     try:
@@ -218,10 +250,15 @@ def run_tuning(request: TuneRequest) -> TuneResult:
         try:
             report_path = str(tuner.save_report(out_dir=str(request.report_dir)))
         except (ImportError, OSError) as exc:
-            # ponytail: report failure degrades to a warning, not a failed run —
-            # promote to EXIT_OUTPUT once reports become load-bearing.
-            logger.warning("Could not save report: %s", exc)
-            warnings_list.append(f"Report could not be saved: {exc}")
+            logger.warning("Could not save requested report", exc_info=True)
+            return _error_result(
+                "output_error",
+                "report_write_failed",
+                f"Could not save requested report: {exc}",
+                request,
+                input_info=input_info,
+                warnings=tuple(warnings_list),
+            )
 
     # ── 9. trial bookkeeping ─────────────────────────────────────────────────
     n_complete = 0

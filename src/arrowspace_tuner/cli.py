@@ -8,6 +8,7 @@ Output contract:
 - ``--format json`` emits exactly one JSON document on stdout and sends all
   logs and errors to stderr as JSON.
 """
+
 from __future__ import annotations
 
 import json
@@ -46,8 +47,19 @@ STATUS_EXIT_CODES: dict[str, int] = {
     "ok": EXIT_OK,
     "validation_error": EXIT_INPUT,
     "tuning_error": EXIT_TUNING,
+    "output_error": EXIT_OUTPUT,
     "interrupted": EXIT_INTERRUPTED,
 }
+
+
+def _output_error_result(error_message: str) -> TuneResult:
+    """TuneResult for a requested artifact that could not be persisted."""
+    return TuneResult(
+        schema_version=SCHEMA_VERSION,
+        status="output_error",
+        error_code="output_write_failed",
+        error_message=error_message,
+    )
 
 
 def _atomic_write_json(payload: dict[str, object], output_path: Path) -> None:
@@ -89,20 +101,11 @@ def _emit_result(
         if extra:
             payload = {**payload, **extra}
         click.echo(json.dumps(payload, sort_keys=True))
-        if result.status != "ok":
-            click.echo(
-                _json_error(
-                    result.status, result.error_code or "error", result.error_message or ""
-                ),
-                err=True,
-            )
         return STATUS_EXIT_CODES.get(result.status, EXIT_INTERNAL)
 
     click.echo(_render_text(result))
     if result.status != "ok":
-        click.echo(
-            f"error [{result.error_code}]: {result.error_message}", err=True
-        )
+        click.echo(f"error [{result.error_code}]: {result.error_message}", err=True)
     return STATUS_EXIT_CODES.get(result.status, EXIT_INTERNAL)
 
 
@@ -193,18 +196,33 @@ _FORMAT_OPTION = click.option(
 @click.option("--n-jobs", type=int, default=1, show_default=True)
 @click.option("--report-dir", type=click.Path(path_type=Path), default=None)
 @click.option(
-    "--save-report/--no-save-report", default=False, show_default=True,
+    "--save-report/--no-save-report",
+    default=False,
+    show_default=True,
     help="Save the trial report under --report-dir.",
 )
-@click.option("--output", type=click.Path(path_type=Path), default=None,
-              help="Write the TuneResult JSON to this file atomically.")
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Write the TuneResult JSON to this file atomically.",
+)
 @_FORMAT_OPTION
-@click.option("--dry-run", is_flag=True, default=False,
-              help="Validate input only; do not run tuning.")
-@click.option("--no-progress", is_flag=True, default=False,
-              help="Accepted for compatibility; progress goes to stderr only.")
-@click.option("--include-hash/--no-include-hash", default=True, show_default=True,
-              help="Compute the SHA-256 of the input file.")
+@click.option(
+    "--dry-run", is_flag=True, default=False, help="Validate input only; do not run tuning."
+)
+@click.option(
+    "--no-progress",
+    is_flag=True,
+    default=False,
+    help="Accepted for compatibility; progress goes to stderr only.",
+)
+@click.option(
+    "--include-hash/--no-include-hash",
+    default=True,
+    show_default=True,
+    help="Compute the SHA-256 of the input file.",
+)
 def tune(
     input_path: Path,
     array_key: str | None,
@@ -262,20 +280,21 @@ def tune(
     if output is not None:
         extra = {
             "seed": seed,
-            "input_sha256": (
-                result.input_info.sha256 if result.input_info else None
-            ),
+            "input_sha256": (result.input_info.sha256 if result.input_info else None),
         }
         try:
             payload = tune_result_to_dict(result)
             payload.update(extra)
             _atomic_write_json(payload, output)
         except OSError as exc:
-            click.echo(
-                _json_error("output_error", "output_write_failed", str(exc)),
-                err=True,
-            )
-            click.echo(f"error: could not write output file: {exc}", err=True)
+            failure = _output_error_result(f"Could not write output file: {exc}")
+            if output_format == "json":
+                click.echo(json.dumps(tune_result_to_dict(failure), sort_keys=True))
+            else:
+                click.echo(
+                    f"error [output_write_failed]: {failure.error_message}",
+                    err=True,
+                )
             sys.exit(EXIT_OUTPUT)
 
     sys.exit(_emit_result(result, output_format, extra))
@@ -307,8 +326,12 @@ def _interrupted(output_format: str) -> None:
 @click.argument("input_path", type=click.Path(path_type=Path))
 @click.option("--array-key", default=None, help="Array key for multi-array .npz files.")
 @_FORMAT_OPTION
-@click.option("--output", type=click.Path(path_type=Path), default=None,
-              help="Write the EmbeddingInfo JSON to this file atomically.")
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Write the EmbeddingInfo JSON to this file atomically.",
+)
 @click.option("--include-hash/--no-include-hash", default=True, show_default=True)
 def validate(
     input_path: Path,
@@ -332,7 +355,13 @@ def validate(
         try:
             _atomic_write_json(payload, output)
         except OSError as exc:
-            _fail(output_format, "output_error", "output_write_failed", str(exc), EXIT_OUTPUT)
+            _fail(
+                output_format,
+                "output_error",
+                "output_write_failed",
+                f"Could not write output file: {exc}",
+                EXIT_OUTPUT,
+            )
             return
     if output_format == "json":
         click.echo(json.dumps(payload, sort_keys=True))
@@ -361,8 +390,13 @@ def inspect(result_path: Path, output_format: str) -> None:
         _fail(output_format, "validation_error", "invalid_result_file", str(exc), EXIT_INPUT)
         return
     if not isinstance(raw, dict):
-        _fail(output_format, "validation_error", "invalid_result_file",
-              "Result file must contain a JSON object.", EXIT_INPUT)
+        _fail(
+            output_format,
+            "validation_error",
+            "invalid_result_file",
+            "Result file must contain a JSON object.",
+            EXIT_INPUT,
+        )
         return
     schema = raw.get("schema_version")
     if schema != SCHEMA_VERSION:
