@@ -31,7 +31,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `ARROWSPACE_TUNER_MAX_TRIALS`, and `ARROWSPACE_TUNER_MAX_N_JOBS` limits.
 - Atomic `--output` persistence (temp file, fsync, atomic replace).
 - Documented exit codes: 0 ok, 2 usage, 3 invalid input, 4 tuning failure,
-  5 output failure, 6 interrupted, 7 internal error.
+  5 requested output/report could not be written (`output_error`), 6
+  interrupted, 7 internal error. A requested report that fails to persist
+  returns `status: "output_error"` with no partial graph configuration.
+- Corpus-aware neighbour validation: `k_low` above `n_items - 1` is
+  rejected before tuning; an out-of-range `k_high` is clipped with a
+  warning; MCP environment limits must be positive integers;
+  `build_instruction` validates every graph parameter value.
 
 ### Security
 

@@ -15,9 +15,11 @@ Security model (see README "Security model for MCP"):
 - no network access: embeddings are read from local files only and are
   never uploaded.
 """
+
 from __future__ import annotations
 
 import importlib
+import math
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -49,6 +51,7 @@ class _ServerLike(Protocol):
     tool: Callable[[], _ToolDecorator]
 
     def run(self) -> None: ...
+
 
 _ALLOWED_ROOTS_ENV = "ARROWSPACE_TUNER_ALLOWED_ROOTS"
 _MAX_INPUT_BYTES_ENV = "ARROWSPACE_TUNER_MAX_INPUT_BYTES"
@@ -96,24 +99,30 @@ _LIMIT_ENV_KEYS: dict[str, str] = {
 
 
 def load_limits(environ: dict[str, str] | None = None) -> McpLimits:
-    """Parse resource-limit environment variables with documented defaults."""
+    """Parse resource-limit environment variables with documented defaults.
+
+    All limits must be positive integers; zero, negative, and non-integer
+    values are invalid server configuration.
+    """
     env = os.environ if environ is None else environ
+    defaults = {
+        "max_input_bytes": _DEFAULT_MAX_INPUT_BYTES,
+        "max_trials": _DEFAULT_MAX_TRIALS,
+        "max_n_jobs": _DEFAULT_MAX_N_JOBS,
+    }
     values: dict[str, int] = {}
     for field, key in _LIMIT_ENV_KEYS.items():
         raw = env.get(key)
         if raw is None or raw == "":
-            values[field] = {
-                "max_input_bytes": _DEFAULT_MAX_INPUT_BYTES,
-                "max_trials": _DEFAULT_MAX_TRIALS,
-                "max_n_jobs": _DEFAULT_MAX_N_JOBS,
-            }[field]
+            values[field] = defaults[field]
             continue
         try:
-            values[field] = int(raw)
+            parsed = int(raw)
         except ValueError as exc:
-            raise McpConfigurationError(
-                f"{key} must be an integer; got {raw!r}."
-            ) from exc
+            raise McpConfigurationError(f"{key} must be a positive integer; got {raw!r}.") from exc
+        if parsed <= 0:
+            raise McpConfigurationError(f"{key} must be a positive integer; got {parsed}.")
+        values[field] = parsed
     return McpLimits(**values)
 
 
@@ -143,8 +152,7 @@ def load_allowed_roots(
             resolved = Path(candidate).expanduser().resolve(strict=True)
         except OSError as exc:
             raise McpConfigurationError(
-                f"Allowed root {candidate!r} does not exist or is not "
-                f"accessible: {exc}"
+                f"Allowed root {candidate!r} does not exist or is not accessible: {exc}"
             ) from exc
         roots.append(str(resolved))
     if not roots:
@@ -177,9 +185,7 @@ def ensure_allowed_path(
     .npy/.npz only. Remote URLs and relative paths are rejected.
     """
     if not isinstance(raw_path, str) or not raw_path.strip():
-        raise InputValidationError(
-            "A non-empty path string is required.", code="invalid_path"
-        )
+        raise InputValidationError("A non-empty path string is required.", code="invalid_path")
     if "://" in raw_path:
         raise InputValidationError(
             "Remote URLs are not supported; provide a local file path.",
@@ -187,9 +193,7 @@ def ensure_allowed_path(
         )
     candidate = Path(raw_path)
     if not candidate.is_absolute():
-        raise InputValidationError(
-            f"Path must be absolute: {raw_path}", code="relative_path"
-        )
+        raise InputValidationError(f"Path must be absolute: {raw_path}", code="relative_path")
     try:
         resolved = candidate.expanduser().resolve(strict=must_exist)
     except OSError as exc:
@@ -262,9 +266,7 @@ def _tool_inspect_embeddings(
     include_hash: bool = True,
 ) -> dict[str, object]:
     try:
-        resolved = ensure_allowed_path(
-            path, allowed_roots=ctx.allowed_roots, must_exist=True
-        )
+        resolved = ensure_allowed_path(path, allowed_roots=ctx.allowed_roots, must_exist=True)
         _enforce_size(resolved, ctx.limits)
         info = inspect_embeddings(
             Path(resolved),
@@ -308,21 +310,16 @@ def _tool_tune_graph(
             f"{ctx.limits.max_n_jobs}; raise {_MAX_N_JOBS_ENV} to allow more.",
         )
     try:
-        resolved = ensure_allowed_path(
-            path, allowed_roots=ctx.allowed_roots, must_exist=True
-        )
+        resolved = ensure_allowed_path(path, allowed_roots=ctx.allowed_roots, must_exist=True)
         _enforce_size(resolved, ctx.limits)
         report_resolved: str | None = None
         if save_report:
             if report_dir is None:
                 return _error(
-                    "invalid_report_dir",
-                    "save_report=true requires an absolute report_dir inside "
-                    "the allowed roots.",
+                    "missing_report_dir",
+                    "save_report=true requires report_dir.",
                 )
-            report_resolved = ensure_allowed_report_dir(
-                report_dir, allowed_roots=ctx.allowed_roots
-            )
+            report_resolved = ensure_allowed_report_dir(report_dir, allowed_roots=ctx.allowed_roots)
     except InputValidationError as exc:
         return _error(exc.code, str(exc))
 
@@ -355,6 +352,98 @@ def _tool_tune_graph(
     return tune_result_to_dict(result)
 
 
+def _validate_build_instruction_params(
+    graph_params: dict[str, object],
+) -> dict[str, float | int | None]:
+    """
+    Validate build-parameter values (keys are checked by the caller):
+    eps finite > 0, k integer >= 1, topk integer in [1, k], p finite > 0,
+    sigma null or finite > 0. Booleans are rejected explicitly.
+    """
+    eps = graph_params.get("eps")
+    if isinstance(eps, bool) or not isinstance(eps, (int, float)):
+        raise InputValidationError(
+            "eps must be a finite number greater than zero.",
+            code="invalid_graph_params",
+        )
+    if not math.isfinite(float(eps)) or float(eps) <= 0:
+        raise InputValidationError(
+            "eps must be a finite number greater than zero.",
+            code="invalid_graph_params",
+        )
+
+    k = graph_params.get("k")
+    if isinstance(k, bool) or not isinstance(k, int):
+        raise InputValidationError(
+            "k must be an integer greater than or equal to 1.",
+            code="invalid_graph_params",
+        )
+    if k < 1:
+        raise InputValidationError(
+            "k must be an integer greater than or equal to 1.",
+            code="invalid_graph_params",
+        )
+
+    topk = graph_params.get("topk")
+    if isinstance(topk, bool) or not isinstance(topk, int):
+        raise InputValidationError(
+            f"topk must be an integer between 1 and k ({k}).",
+            code="invalid_graph_params",
+        )
+    if not 1 <= topk <= k:
+        raise InputValidationError(
+            f"topk must be an integer between 1 and k ({k}).",
+            code="invalid_graph_params",
+        )
+
+    p = graph_params.get("p")
+    if isinstance(p, bool) or not isinstance(p, (int, float)):
+        raise InputValidationError(
+            "p must be a finite number greater than zero.",
+            code="invalid_graph_params",
+        )
+    if not math.isfinite(float(p)) or float(p) <= 0:
+        raise InputValidationError(
+            "p must be a finite number greater than zero.",
+            code="invalid_graph_params",
+        )
+
+    sigma = graph_params.get("sigma")
+    if sigma is not None:
+        if isinstance(sigma, bool) or not isinstance(sigma, (int, float)):
+            raise InputValidationError(
+                "sigma must be null or a finite number greater than zero.",
+                code="invalid_graph_params",
+            )
+        if not math.isfinite(float(sigma)) or float(sigma) <= 0:
+            raise InputValidationError(
+                "sigma must be null or a finite number greater than zero.",
+                code="invalid_graph_params",
+            )
+
+    return {
+        "eps": float(eps),
+        "k": k,
+        "topk": topk,
+        "p": float(p),
+        "sigma": None if sigma is None else float(sigma),
+    }
+
+
+def _validate_best_tau(best_tau: object) -> float:
+    """Validate best_tau: real number in [0, 1]; strings, booleans, NaN,
+    and infinity are rejected."""
+    if isinstance(best_tau, bool) or not isinstance(best_tau, (int, float)):
+        raise InputValidationError("best_tau must be a number.", code="invalid_tau")
+    tau = float(best_tau)
+    if not math.isfinite(tau) or not TAU_LOW <= tau <= TAU_HIGH:
+        raise InputValidationError(
+            f"best_tau must be within [{TAU_LOW}, {TAU_HIGH}]; got {tau}.",
+            code="invalid_tau",
+        )
+    return tau
+
+
 def _tool_build_instruction(
     graph_params: dict[str, object],
     best_tau: float,
@@ -362,20 +451,15 @@ def _tool_build_instruction(
     if not isinstance(graph_params, dict) or set(graph_params) != set(GRAPH_BUILD_KEYS):
         return _error(
             "invalid_graph_params",
-            "graph_params must contain exactly the keys: "
-            f"{', '.join(GRAPH_BUILD_KEYS)}.",
+            f"graph_params must contain exactly the keys: {', '.join(GRAPH_BUILD_KEYS)}.",
         )
     try:
-        tau = float(best_tau)
-    except (TypeError, ValueError):
-        return _error("invalid_tau", "best_tau must be a number.")
-    if not TAU_LOW <= tau <= TAU_HIGH:
-        return _error(
-            "invalid_tau",
-            f"best_tau must be within [{TAU_LOW}, {TAU_HIGH}]; got {tau}.",
-        )
+        validated = _validate_build_instruction_params(graph_params)
+        tau = _validate_best_tau(best_tau)
+    except InputValidationError as exc:
+        return _error(exc.code, str(exc))
     return {
-        "graph_params": dict(graph_params),
+        "graph_params": validated,
         "search_tau": tau,
         "python_example": (
             "from arrowspace import ArrowSpaceBuilder\n"
@@ -385,8 +469,7 @@ def _tool_build_instruction(
         ),
         "notes": [
             "graph_params contains build-time parameters only",
-            "search_tau is separate and must not be passed to "
-            "ArrowSpaceBuilder.build",
+            "search_tau is separate and must not be passed to ArrowSpaceBuilder.build",
         ],
     }
 
@@ -473,9 +556,24 @@ def build_server(ctx: McpContext) -> _ServerLike:
         """Tune ArrowSpace graph parameters (eps, k, topk, p, sigma) from a
         local embedding file and return a TuneResult with a separate
         best_tau search-time value."""
-        return _tool_tune_graph(ctx, path, array_key, n_trials, sample_n, seed,
-                                eps_low, eps_high, k_low, k_high, tau_low,
-                                tau_high, n_probe, n_jobs, save_report, report_dir)
+        return _tool_tune_graph(
+            ctx,
+            path,
+            array_key,
+            n_trials,
+            sample_n,
+            seed,
+            eps_low,
+            eps_high,
+            k_low,
+            k_high,
+            tau_low,
+            tau_high,
+            n_probe,
+            n_jobs,
+            save_report,
+            report_dir,
+        )
 
     @server.tool()
     def build_instruction(

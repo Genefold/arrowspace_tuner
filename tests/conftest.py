@@ -4,6 +4,7 @@ conftest.py — shared pytest fixtures for arrowspace_tuner tests.
 All fixtures are purely synthetic — no disk reads, no real embeddings,
 no arrowspace Rust wheel required for the fixtures themselves.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,16 +13,18 @@ import numpy as np
 import pytest
 
 from arrowspace_tuner import StudyConfig
+from arrowspace_tuner.models import TuneRequest
 
 # ── constants ─────────────────────────────────────────────────────────────────
 
-N_SMALL  = 120    # fast: enough for a non-degenerate graph
-N_MEDIUM = 600    # realistic: closer to a real corpus sample
-D        = 64     # embedding dimension
-SEED     = 42
+N_SMALL = 120  # fast: enough for a non-degenerate graph
+N_MEDIUM = 600  # realistic: closer to a real corpus sample
+D = 64  # embedding dimension
+SEED = 42
 
 
 # ── embedding fixtures ────────────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="session")
 def rng() -> np.random.Generator:
@@ -38,10 +41,7 @@ def embeddings_small(rng: np.random.Generator) -> np.ndarray:
     structured enough to produce a non-degenerate graph at reasonable eps.
     """
     centres = rng.standard_normal((4, D))
-    chunks  = [
-        centres[i] + 0.4 * rng.standard_normal((30, D))
-        for i in range(4)
-    ]
+    chunks = [centres[i] + 0.4 * rng.standard_normal((30, D)) for i in range(4)]
     arr = np.vstack(chunks).astype(np.float64)
     # L2-normalise so eps bounds are dataset-agnostic
     norms = np.linalg.norm(arr, axis=1, keepdims=True)
@@ -56,10 +56,7 @@ def embeddings_medium(rng: np.random.Generator) -> np.ndarray:
     Used for integration tests where sample_n subsampling matters.
     """
     centres = rng.standard_normal((6, D))
-    chunks  = [
-        centres[i] + 0.35 * rng.standard_normal((100, D))
-        for i in range(6)
-    ]
+    chunks = [centres[i] + 0.35 * rng.standard_normal((100, D)) for i in range(6)]
     arr = np.vstack(chunks).astype(np.float64)
     norms = np.linalg.norm(arr, axis=1, keepdims=True)
     return arr / np.clip(norms, 1e-9, None)
@@ -102,6 +99,7 @@ def embeddings_1d(rng: np.random.Generator) -> np.ndarray:
 
 # ── StudyConfig fixtures ──────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def fast_study_config() -> StudyConfig:
     """
@@ -111,17 +109,17 @@ def fast_study_config() -> StudyConfig:
     known to produce valid graphs for the clustered fixtures above.
     """
     return StudyConfig(
-        n_trials   = 3,
-        sample_n   = None,
-        seed       = SEED,
-        study_name = "test_study",
-        eps_low    = 0.5,
-        eps_high   = 2.0,
-        k_low      = 3,
-        k_high     = 10,
-        tau_low    = 0.3,
-        tau_high   = 1.2,
-        n_probe    = 20,
+        n_trials=3,
+        sample_n=None,
+        seed=SEED,
+        study_name="test_study",
+        eps_low=0.5,
+        eps_high=2.0,
+        k_low=3,
+        k_high=10,
+        tau_low=0.3,
+        tau_high=1.2,
+        n_probe=20,
     )
 
 
@@ -137,21 +135,22 @@ def flat_study_config() -> StudyConfig:
     trial is either pruned or returns a degenerate score.
     """
     return StudyConfig(
-        n_trials   = 5,
-        sample_n   = None,
-        seed       = SEED,
-        study_name = "test_flat",
-        eps_low    = 0.001,
-        eps_high   = 0.05,
-        k_low      = 3,
-        k_high     = 10,
-        tau_low    = 0.3,
-        tau_high   = 1.2,
-        n_probe    = 10,
+        n_trials=5,
+        sample_n=None,
+        seed=SEED,
+        study_name="test_flat",
+        eps_low=0.001,
+        eps_high=0.05,
+        k_low=3,
+        k_high=10,
+        tau_low=0.3,
+        tau_high=1.2,
+        n_probe=10,
     )
 
 
 # ── CLI / MCP / service fixtures (issue #17) ──────────────────────────────────
+
 
 @pytest.fixture
 def npy_file(tmp_path: Path, embeddings_small: np.ndarray) -> Path:
@@ -170,7 +169,11 @@ def npz_single_file(tmp_path: Path, embeddings_small: np.ndarray) -> Path:
 
 
 @pytest.fixture
-def npz_multi_file(tmp_path, embeddings_small, embeddings_medium) -> Path:
+def npz_multi_file(
+    tmp_path: Path,
+    embeddings_small: np.ndarray,
+    embeddings_medium: np.ndarray,
+) -> Path:
     """A .npz file containing two arrays — requires an explicit key."""
     path = tmp_path / "multi.npz"
     np.savez(path, small=embeddings_small, medium=embeddings_medium)
@@ -185,15 +188,13 @@ def fast_tune_request(npy_file: Path) -> TuneRequest:
     3 trials, small bounds centred on a region known to produce valid
     graphs for embeddings_small (mirrors fast_study_config).
     """
-    from arrowspace_tuner.models import TuneRequest
-
     return TuneRequest(
-        input_path = npy_file,
-        n_trials   = 3,
-        seed       = SEED,
-        eps_low    = 0.5,
-        eps_high   = 2.0,
-        k_low      = 3,
-        k_high     = 10,
-        n_probe    = 20,
+        input_path=npy_file,
+        n_trials=3,
+        seed=SEED,
+        eps_low=0.5,
+        eps_high=2.0,
+        k_low=3,
+        k_high=10,
+        n_probe=20,
     )

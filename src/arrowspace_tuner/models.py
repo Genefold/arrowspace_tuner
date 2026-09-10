@@ -12,6 +12,7 @@ Two naming rules are load-bearing (see CHANGELOG 0.4.1):
 - graph parameters use ArrowSpace's native ``topk`` key — never ``top_k``;
 - ``best_tau`` is a search-time result and is NEVER part of ``graph_params``.
 """
+
 from __future__ import annotations
 
 import math
@@ -96,7 +97,7 @@ class TuneResult:
     """Stable result schema shared by Python service, CLI, and MCP."""
 
     schema_version: str = SCHEMA_VERSION
-    status: Literal["ok", "validation_error", "tuning_error", "interrupted"] = "ok"
+    status: Literal["ok", "validation_error", "tuning_error", "output_error", "interrupted"] = "ok"
 
     graph_params: dict[str, float | int | None] | None = None
     best_tau: float | None = None
@@ -167,18 +168,14 @@ def tune_result_to_dict(result: TuneResult) -> dict[str, object]:
     return {
         "schema_version": result.schema_version,
         "status": result.status,
-        "graph_params": (
-            dict(result.graph_params) if result.graph_params is not None else None
-        ),
+        "graph_params": (dict(result.graph_params) if result.graph_params is not None else None),
         "best_tau": _json_float(result.best_tau),
         "best_score": _json_float(result.best_score),
         "best_fiedler": _json_float(result.best_fiedler),
         "best_var_lambda": _json_float(result.best_var_lambda),
         "best_mrr_proxy": _json_float(result.best_mrr_proxy),
         "input_info": (
-            embedding_info_to_dict(result.input_info)
-            if result.input_info is not None
-            else None
+            embedding_info_to_dict(result.input_info) if result.input_info is not None else None
         ),
         "n_trials_requested": result.n_trials_requested,
         "n_trials_complete": result.n_trials_complete,
