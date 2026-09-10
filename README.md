@@ -27,6 +27,9 @@ pip install arrowspace-tuner
 
 # With HTML/CSV reporting
 pip install arrowspace-tuner[report]
+
+# With the local stdio MCP server for LLM clients
+pip install "arrowspace-tuner[mcp]"
 ```
 
 ## Quickstart
@@ -117,6 +120,125 @@ tuner.save_report(out_dir="results")
 ```
 
 The final build after the study always uses the full corpus.
+
+## CLI
+
+The `arrowspace-tuner` command (also available as `python -m arrowspace_tuner`)
+runs the same tuning engine against local embedding files:
+
+```bash
+pip install "arrowspace-tuner[mcp]"
+
+arrowspace-tuner tune corpus_embeddings.npy \
+  --trials 15 \
+  --format json \
+  --output tuning_result.json
+```
+
+Validate the input first — invalid matrices fail before tuning with exit
+code 3:
+
+```bash
+arrowspace-tuner validate corpus_embeddings.npy --format json
+```
+
+Other commands: `inspect RESULT.json` (re-read a written TuneResult),
+`version`, and `mcp`. Run `arrowspace-tuner --help` for every option.
+
+Exit codes: `0` ok · `2` CLI usage error · `3` invalid input · `4` tuning
+failed (all trials pruned) · `5` output/report write failure · `6`
+interrupted · `7` unexpected internal error.
+
+Build with the result:
+
+```python
+import json
+import numpy as np
+from arrowspace import ArrowSpaceBuilder
+
+embeddings = np.load("corpus_embeddings.npy")
+result = json.load(open("tuning_result.json"))
+
+aspace, gl = ArrowSpaceBuilder().build(
+    result["graph_params"],
+    embeddings,
+)
+
+hits = aspace.search(
+    query_embedding,
+    gl,
+    tau=result["best_tau"],
+)
+```
+
+## JSON output for automation
+
+`--format json` prints exactly one JSON document on stdout; logs, warnings,
+and progress go to stderr only, so the stream is safe to pipe. The schema
+(`schema_version: "1.0"`) is stable:
+
+```json
+{
+  "schema_version": "1.0",
+  "status": "ok",
+  "graph_params": {"eps": 1.615376, "k": 38, "topk": 19, "p": 2.0, "sigma": null},
+  "best_tau": 0.8,
+  "best_score": 2.138421,
+  "n_trials_complete": 12,
+  "n_trials_pruned": 3,
+  "elapsed_seconds": 84.27,
+  "input_info": {"path": "corpus_embeddings.npy", "sha256": "9d4b…"},
+  "error_code": null,
+  "error_message": null
+}
+```
+
+Guarantees: `graph_params` uses the native `topk` key (never `top_k`) and
+never contains `tau`; `best_tau` is a top-level search-time key; failures
+also print valid JSON (`status: "validation_error" | "tuning_error"`, with
+`error_code` and `error_message`) and exit non-zero. `--output` writes the
+same document atomically (temp file + fsync + atomic replace).
+
+## MCP server
+
+`arrowspace-tuner mcp` starts a local stdio MCP server for LLM clients
+(requires the `mcp` extra). It calls the same shared service as the CLI —
+never a subprocess — and exposes exactly four tools:
+`inspect_embeddings`, `tune_graph`, `build_instruction`, and
+`get_tuner_info`.
+
+```json
+{
+  "mcpServers": {
+    "arrowspace-tuner": {
+      "command": "arrowspace-tuner",
+      "args": ["mcp"],
+      "env": {
+        "ARROWSPACE_TUNER_ALLOWED_ROOTS": "/workspace:/data"
+      }
+    }
+  }
+}
+```
+
+See [`examples/mcp_usage.md`](examples/mcp_usage.md) and
+[`examples/mcp_config.json`](examples/mcp_config.json).
+
+## Security model for MCP
+
+- The server runs locally over stdio; it makes no network requests and
+  accepts no remote URLs.
+- Embeddings are read only from `.npy`/`.npz` files under explicitly
+  configured roots (`ARROWSPACE_TUNER_ALLOWED_ROOTS`, mandatory — the
+  server refuses to start without it). Symlinks escaping a root, relative
+  paths, pickle/object arrays, and files above
+  `ARROWSPACE_TUNER_MAX_INPUT_BYTES` (default 2 GiB) are rejected.
+- `ARROWSPACE_TUNER_MAX_TRIALS` (default 100) and
+  `ARROWSPACE_TUNER_MAX_N_JOBS` (default 4) cap tuning requests before
+  Optuna starts.
+- No embedding data is uploaded; reports are written only when explicitly
+  requested, beneath an allowed root, and never overwrite an existing
+  report directory.
 
 ## Objective
 
