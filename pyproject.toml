@@ -102,6 +102,8 @@ exclude = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# notebooks and one-off scripts are not part of the linted package surface
+extend-exclude = ["notebooks", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "ANN"]

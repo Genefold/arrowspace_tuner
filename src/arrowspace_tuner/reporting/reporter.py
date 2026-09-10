@@ -10,6 +10,7 @@ Never called automatically by EpsTuner — must be invoked explicitly:
     from arrowspace_tuner.reporting import save_results
     save_results(study, out_dir="results")
 """
+
 from __future__ import annotations
 
 import json
@@ -30,6 +31,7 @@ try:
         plot_optimization_history,
         plot_param_importances,
     )
+
     _REPORT_DEPS_OK = True
 except ImportError:
     _REPORT_DEPS_OK = False
@@ -41,7 +43,7 @@ except ImportError:
 
 
 def save_results(
-    study:   optuna.Study,
+    study: optuna.Study,
     out_dir: str | Path = "results",
 ) -> Path:
     """
@@ -70,11 +72,10 @@ def save_results(
     """
     if not _REPORT_DEPS_OK:
         raise ImportError(
-            "save_results requires the [report] extras. "
-            "Run: pip install arrowspace-tuner[report]"
+            "save_results requires the [report] extras. Run: pip install arrowspace-tuner[report]"
         )
 
-    ts      = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = Path(out_dir) / study.study_name / ts
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -82,12 +83,13 @@ def save_results(
     rows = []
     for t in study.trials:
         row = {
-            "trial":      t.number,
-            "score":      t.value if t.value is not None else float("nan"),
-            "state":      t.state.name,
+            "trial": t.number,
+            "score": t.value if t.value is not None else float("nan"),
+            "state": t.state.name,
             "duration_s": (
                 (t.datetime_complete - t.datetime_start).total_seconds()
-                if t.datetime_complete and t.datetime_start else None
+                if t.datetime_complete and t.datetime_start
+                else None
             ),
         }
         row.update(t.params)
@@ -100,15 +102,15 @@ def save_results(
     logger.info("Saved trials → %s", csv_path)
 
     # ── 2. best_params.json ───────────────────────────────────────────────────
-    best      = study.best_trial
+    best = study.best_trial
     best_dict = {
-        "trial":      best.number,
-        "score":      best.value,
-        "params":     best.params,
+        "trial": best.number,
+        "score": best.value,
+        "params": best.params,
         "user_attrs": best.user_attrs,
-        "timestamp":  ts,
+        "timestamp": ts,
         "study_name": study.study_name,
-        "n_trials":   len(study.trials),
+        "n_trials": len(study.trials),
     }
     json_path = run_dir / "best_params.json"
     json_path.write_text(json.dumps(best_dict, indent=2))
@@ -121,13 +123,9 @@ def save_results(
             run_dir / "optimization_history.html",
         )
 
-        completed        = [t for t in study.trials
-                            if t.state == optuna.trial.TrialState.COMPLETE]
+        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         objective_values = [t.value for t in completed if t.value is not None]
-        has_variance     = (
-            len(objective_values) >= 4
-            and np.var(objective_values) > 1e-12
-        )
+        has_variance = len(objective_values) >= 4 and np.var(objective_values) > 1e-12
 
         if has_variance:
             _save_html(
@@ -153,6 +151,7 @@ def save_results(
 def _save_html(fig: object, path: Path) -> None:
     try:
         from plotly.graph_objs import Figure
+
         if isinstance(fig, Figure):
             fig.write_html(str(path))
             logger.info("Saved plot → %s", path)
@@ -163,9 +162,9 @@ def _save_html(fig: object, path: Path) -> None:
 
 
 def _print_summary(
-    best:    FrozenTrial,
+    best: FrozenTrial,
     run_dir: Path,
-    df:      pd.DataFrame,
+    df: pd.DataFrame,
 ) -> None:
     completed = df[df["state"] == "COMPLETE"]
     print("\n" + "=" * 60)

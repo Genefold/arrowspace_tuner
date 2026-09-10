@@ -41,14 +41,14 @@ class BuildParams:
         Fraction of embeddings used per trial build (1.0 = all).
     """
 
-    eps:            float        = 0.8
-    k:              int          = 10
-    topk:           int          = -1   # sentinel: resolved in __post_init__
-    p:              float        = 2.0
-    sigma:          float | None = None
-    max_clusters:   int | None   = None
+    eps: float = 0.8
+    k: int = 10
+    topk: int = -1  # sentinel: resolved in __post_init__
+    p: float = 2.0
+    sigma: float | None = None
+    max_clusters: int | None = None
     cluster_radius: float | None = None
-    sampling_rate:  float        = 1.0
+    sampling_rate: float = 1.0
 
     def __post_init__(self) -> None:
         # Resolve topk sentinel: -1 means "use k // 2"
@@ -65,10 +65,10 @@ class BuildParams:
         and must NOT be passed to the builder.
         """
         return {
-            "eps":   self.eps,
-            "k":     self.k,
-            "topk":  self.topk,
-            "p":     self.p,
+            "eps": self.eps,
+            "k": self.k,
+            "topk": self.topk,
+            "p": self.p,
             "sigma": self.sigma,
         }
 
@@ -135,27 +135,27 @@ class StudyConfig:
         not a concern.
     """
 
-    n_trials:   int          = _DEFAULT_N_TRIALS
-    sample_n:   int | None   = None
-    seed:       int          = 54
-    study_name: str          = "arrowspace_tuner"
-    storage:    str | None   = None
-    n_jobs:     int          = 1
+    n_trials: int = _DEFAULT_N_TRIALS
+    sample_n: int | None = None
+    seed: int = 54
+    study_name: str = "arrowspace_tuner"
+    storage: str | None = None
+    n_jobs: int = 1
 
     # Search space — graph
-    eps_low:  float = 0.5
+    eps_low: float = 0.5
     eps_high: float = 3.0
-    k_low:    int   = 3
-    k_high:   int   = 40
+    k_low: int = 3
+    k_high: int = 40
 
     # Search space — retrieval
-    tau_low:  float = 0.1
+    tau_low: float = 0.1
     tau_high: float = 1.0
 
     # MRR proxy — shared constant ensures api.optuna() and EpsTuner agree
-    n_probe:  int   = _DEFAULT_N_PROBE
+    n_probe: int = _DEFAULT_N_PROBE
 
-    max_clusters:   int | None   = None
+    max_clusters: int | None = None
     cluster_radius: float | None = None
 
     def __post_init__(self) -> None:
@@ -165,16 +165,10 @@ class StudyConfig:
         if self.n_probe < 1:
             raise ValueError(f"n_probe must be >= 1, got {self.n_probe}")
         if self.eps_low >= self.eps_high:
-            raise ValueError(
-                f"eps_low must be < eps_high, got [{self.eps_low}, {self.eps_high}]"
-            )
+            raise ValueError(f"eps_low must be < eps_high, got [{self.eps_low}, {self.eps_high}]")
         if self.k_low >= self.k_high:
-            raise ValueError(
-                f"k_low must be < k_high, got [{self.k_low}, {self.k_high}]"
-            )
+            raise ValueError(f"k_low must be < k_high, got [{self.k_low}, {self.k_high}]")
         if self.tau_low > self.tau_high:
-            raise ValueError(
-                f"tau_low must be < tau_high, got [{self.tau_low}, {self.tau_high}]"
-            )
+            raise ValueError(f"tau_low must be < tau_high, got [{self.tau_low}, {self.tau_high}]")
         if self.sample_n is not None and self.sample_n < 1:
             raise ValueError(f"sample_n must be >= 1 or None, got {self.sample_n}")

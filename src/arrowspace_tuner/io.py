@@ -10,6 +10,7 @@ This is the single input contract for the CLI and MCP server:
 
 Embeddings are never normalised or modified — diagnostics only.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -26,12 +27,9 @@ SUPPORTED_SUFFIXES: frozenset[str] = frozenset({".npy", ".npz"})
 _WARN_FEW_ROWS = "Input has fewer than 100 rows; tuning may be unstable."
 _WARN_NORMALISED = "Embeddings appear approximately L2-normalised."
 _WARN_VARYING_NORMS = (
-    "Embedding norms vary substantially; confirm that raw Euclidean geometry "
-    "is intended."
+    "Embedding norms vary substantially; confirm that raw Euclidean geometry is intended."
 )
-_WARN_K_HIGH_CLIP = (
-    "k_high exceeds n_items - 1; effective upper bound will be clipped."
-)
+_WARN_K_HIGH_CLIP = "k_high exceeds n_items - 1; effective upper bound will be clipped."
 
 
 class InputValidationError(ValueError):
@@ -78,8 +76,7 @@ def _validate_matrix(arr: np.ndarray, source: str) -> np.ndarray:
     """Shared 2D/numeric/finiteness validation; returns a float64 copy."""
     _reject(
         arr.ndim != 2,
-        f"{source} must be a 2D (N, D) matrix, got {arr.ndim}D with shape "
-        f"{tuple(arr.shape)}.",
+        f"{source} must be a 2D (N, D) matrix, got {arr.ndim}D with shape {tuple(arr.shape)}.",
         "not_2d",
     )
     _reject(
@@ -130,8 +127,7 @@ def _norm_warnings(embeddings: np.ndarray, n_items: int) -> tuple[str, ...]:
 def _load_npy(path: Path, array_key: str | None) -> np.ndarray:
     if array_key is not None:
         raise InputValidationError(
-            "--array-key is only valid for .npz files; the .npy file holds a "
-            "single array.",
+            "--array-key is only valid for .npz files; the .npy file holds a single array.",
             code="array_key_not_applicable",
         )
     try:
@@ -148,9 +144,7 @@ def _load_npz(path: Path, array_key: str | None) -> tuple[np.ndarray, str]:
         with np.load(path, allow_pickle=False) as npz:
             keys = list(npz.files)
             if not keys:
-                raise InputValidationError(
-                    "The .npz file contains no arrays.", code="empty_npz"
-                )
+                raise InputValidationError("The .npz file contains no arrays.", code="empty_npz")
             if array_key is None:
                 if len(keys) > 1:
                     raise AmbiguousNpzArrayError(
@@ -171,9 +165,7 @@ def _load_npz(path: Path, array_key: str | None) -> tuple[np.ndarray, str]:
     except InputValidationError:
         raise
     except (OSError, ValueError) as exc:
-        raise InputValidationError(
-            f"Could not load .npz file: {exc}", code="invalid_file"
-        ) from exc
+        raise InputValidationError(f"Could not load .npz file: {exc}", code="invalid_file") from exc
 
 
 def load_embeddings(
@@ -214,8 +206,7 @@ def load_embeddings(
         size = path.stat().st_size
         _reject(
             size > max_bytes,
-            f"Input file exceeds the configured maximum size "
-            f"({size} > {max_bytes} bytes).",
+            f"Input file exceeds the configured maximum size ({size} > {max_bytes} bytes).",
             "input_too_large",
         )
 
@@ -227,9 +218,7 @@ def load_embeddings(
         raw, selected_key = _load_npz(path, array_key)
         fmt = "npz"
 
-    source = (
-        f"Array '{selected_key}' in {path.name}" if selected_key else f"Array in {path.name}"
-    )
+    source = f"Array '{selected_key}' in {path.name}" if selected_key else f"Array in {path.name}"
     embeddings = _validate_matrix(raw, source)
 
     n_items, n_dimensions = int(embeddings.shape[0]), int(embeddings.shape[1])

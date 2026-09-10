@@ -3,6 +3,7 @@ api.py — one-liner convenience function for hyperparameter discovery.
 
 For any non-trivial use case, instantiate EpsTuner directly.
 """
+
 from __future__ import annotations
 
 import warnings

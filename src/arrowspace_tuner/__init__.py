@@ -23,6 +23,7 @@ Quickstart
     print(tuner.best_score)
     tuner.save_report()         # requires pip install arrowspace-tuner[report]
 """
+
 from importlib.metadata import PackageNotFoundError, version
 
 from .api import optuna, tune
