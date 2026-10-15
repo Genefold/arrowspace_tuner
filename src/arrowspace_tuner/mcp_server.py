@@ -480,7 +480,7 @@ def _tool_get_tuner_info() -> dict[str, object]:
     return {
         "schema_version": SCHEMA_VERSION,
         "arrowspace_tuner_version": __version__,
-        "arrowspace_requirement": ">=0.26.0,<0.29",
+        "arrowspace_requirement": ">=0.26.0,<0.30",
         "supported_input_formats": ["npy", "npz"],
         "graph_build_keys": list(GRAPH_BUILD_KEYS),
         "search_time_key": "best_tau",

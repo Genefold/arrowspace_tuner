@@ -458,7 +458,7 @@ def version(output_format: str) -> None:
 
     payload = {
         "arrowspace_tuner_version": __version__,
-        "arrowspace_requirement": ">=0.26.0,<0.29",
+        "arrowspace_requirement": ">=0.26.0,<0.30",
         "supported_input_formats": list(SUPPORTED_FORMATS),
         "graph_build_keys": ["eps", "k", "topk", "p", "sigma"],
         "search_time_result": "best_tau",

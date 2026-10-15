@@ -6,6 +6,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.1] — Unreleased
+
+### Fixed
+
+- Allow ArrowSpace 0.29.x in package metadata and CLI/MCP diagnostics.
+- Add ArrowSpace 0.29.0 to the compatibility CI matrix and guard its
+  installability with a packaging regression test.
+- Build releases with Hatchling instead of the unrelated Rust/maturin pipeline;
+  manual workflow runs validate distributions without publishing to PyPI.
+
 ## [0.5.0] — 2026-09-09
 
 ### Added
