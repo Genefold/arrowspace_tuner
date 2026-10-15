@@ -44,8 +44,8 @@ jobs:
         python-version: ["3.12", "3.13"]
         # Lower bound, the release that introduced strict builder-key
         # validation, and the upper tested version of the declared support
-        # range (arrowspace >= 0.26.0, < 0.29).
-        arrowspace-version: ["0.26.0", "0.27.3", "0.28.1"]
+        # range (arrowspace >= 0.26.0, < 0.30).
+        arrowspace-version: ["0.26.0", "0.27.3", "0.28.1", "0.29.0"]
 
     steps:
       - uses: actions/checkout@v4
