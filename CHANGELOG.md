@@ -6,6 +6,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- Upgrade ArrowSpace to `>=0.30.0,<0.31` and update the lockfile and CI
+  compatibility and wheel smoke tests to 0.30.0.
+
 ## [0.5.1] — 2026-10-15
 
 ### Fixed
