@@ -6,6 +6,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.30.0] — 2026-11-10
+
+### Changed
+
+- Align the package version with the supported ArrowSpace 0.30 series.
+  No API changes from 0.5.2.
+
 ## [0.5.2] — 2026-11-10
 
 ### Changed
