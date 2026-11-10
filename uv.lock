@@ -79,7 +79,7 @@ wheels = [
 
 [[package]]
 name = "arrowspace-tuner"
-version = "0.5.2"
+version = "0.30.0"
 source = { editable = "." }
 dependencies = [
     { name = "arrowspace" },
