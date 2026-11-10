@@ -15,6 +15,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Report the updated dependency range in CLI and MCP diagnostics, with
   regression tests for the package metadata and both interfaces.
 
+### Security
+
+- Refresh locked AnyIO, certifi, cryptography, Mako, OpenTelemetry API,
+  PyJWT, and urllib3 dependencies to address known vulnerabilities.
+
 ## [0.5.1] — 2026-10-15
 
 ### Fixed
