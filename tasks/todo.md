@@ -2,7 +2,7 @@
 
 ## T-001 — eps/k-only tuning with targeted low-k refinement
 
-- State: IMPLEMENTED — checkpoint/PR pending
+- State: IMPLEMENTED — final CI pending
 - Dependencies: approved implementation spec; no other tasks.
 - Acceptance:
   - Optimize eps/k only; tau is fixed internally and absent from public results.
@@ -28,11 +28,24 @@
   - Repository-wide format check flags untouched tests/test_arrowspace_030_metadata.py.
     Do not change unrelated formatting.
 - Verification results:
-  - Full suite: 308 passed, 90% total coverage (selection helper 100%).
+  - Full suite: 310 passed, 90% total coverage (selection helper 100%).
   - Ruff lint and strict mypy: pass.
   - Wheel build: pass using uv.
   - Full-tree format check: only the confirmed pre-existing metadata-test issue.
   - One run timed out; diagnostic verbose rerun completed in 5.42 seconds.
   - Optuna experimental and SQLite resource warnings do not fail checks.
-- Commit: implementation commit containing this ledger.
-- PR/checkpoint: pending.
+  - Initial CI exposed report tests assuming optional Plotly. Tests now assert the
+    missing-extra error without skipping, and retain complete report assertions
+    when extras are installed. Simulated no-Plotly verification: 2 passed.
+  - Added checkpoint hardening for full-range eps exploration, inclusive tolerance
+    boundaries, and reporting a selected score below the raw maximum.
+- Commit: e0c9315 (implementation).
+- PR: https://github.com/Genefold/arrowspace_tuner/pull/49
+- Checkpoint: no blocking correctness/security/test findings in bounded source
+  reviews. Reviewers could not independently execute commands or read the external
+  spec; the contract is now available at docs/spec-lowest-k.md. Parent verification
+  supplies the diff/check results. Optional cache cleanup and additional resume
+  variants are deferred, not mixed into this feature.
+- Accepted risks: stochastic native builds; Optuna/SQLite warnings; pre-existing
+  unrelated format issue. No global minimum-k guarantee.
+- Rollback: revert this task's commits together; use a new compatible study.

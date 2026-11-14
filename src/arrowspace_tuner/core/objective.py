@@ -222,11 +222,10 @@ def make_objective(
 
         {"aspace": <ArrowSpace>, "gl": <GraphLaplacian>, "score": float}
 
-    When ``cfg.sample_n`` is ``None`` (full corpus path) the cached objects
-    were built on the full corpus and can be returned directly by
-    ``EpsTuner._final_build``, saving one redundant ``.build()`` call.
-    When ``cfg.sample_n`` is set the cache is never populated (the trial
-    objects were built on a subsample) so ``_final_build`` runs as normal.
+    On the full-corpus path, the cache retains the raw-score winner's graph
+    for callers of this factory and records its trial identity. EpsTuner.fit()
+    returns parameters only and clears this cache after selection. Subsample
+    graphs are never cached as reusable full-corpus builds.
 
     The corpus subsample and probe anchor indices are drawn ONCE here,
     before the inner closure is created, so every trial evaluates on the

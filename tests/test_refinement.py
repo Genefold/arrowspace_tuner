@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -44,19 +45,35 @@ def test_report_uses_selected_trial_and_reload(
             trial.suggest_int("k", 3, 40)
             trial.suggest_float("eps", 0.3, 4.0, log=True)
             trial.set_user_attr("evaluation_success", True)
-            return 1.0
+            return 1.0 if trial.user_attrs["phase"] == "main" else 0.875
 
         return objective, {}
 
     monkeypatch.setattr(module, "make_objective", factory)
-    tuner = EpsTuner(n_trials=1, selection_policy="lowest_k", refinement_trials=2)
+    tuner = EpsTuner(
+        n_trials=1,
+        selection_policy="lowest_k",
+        refinement_trials=2,
+        score_tolerance=0.125,
+    )
     params = dict(tuner.fit(np.ones((50, 4))))
+    assert params["k"] == 3
+    assert tuner.best_score == 0.875
     selected_number = tuner.selection["selected_trial_number"]
+    if importlib.util.find_spec("plotly") is None or importlib.util.find_spec("pandas") is None:
+        with pytest.raises(ImportError):
+            tuner.save_report(str(tmp_path))
+        assert tuner.graph_params == params
+        assert tuner.selection["selected_trial_number"] == selected_number
+        return
     report = tuner.save_report(str(tmp_path))
     saved = json.loads((report / "best_params.json").read_text())
     assert saved["params"] == params
     assert saved["trial"] == selected_number
     assert saved["selection"]["raw_best_trial_number"] == 0
+    assert saved["score"] == 0.875
+    assert saved["selection"]["raw_best_score"] == 1.0
+    assert saved["selection"]["selected_score_gap"] == 0.125
     assert tuner.load_graph_params() == params
     assert "tau" not in (report / "trials.csv").read_text()
     # A later invocation must not overwrite earlier report snapshots.

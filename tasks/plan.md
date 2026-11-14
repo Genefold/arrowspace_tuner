@@ -1,6 +1,7 @@
 # eps/k targeted refinement implementation
 
 Approved source: `/Users/tommasomoriondo/.opencode/plan/arrowspace-tuner-lowest-k-spec.md`.
+Repository contract: `docs/spec-lowest-k.md`.
 The user explicitly directed implementation of the complete approved feature.
 
 ## T-001 — eps/k-only tuning with quality-first low-k refinement

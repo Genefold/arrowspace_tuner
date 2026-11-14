@@ -23,6 +23,12 @@ def test_refinement_skips_when_anchor_is_already_minimum() -> None:
     assert refinement_schedule(cfg, k_anchor=cfg.k_low, eps_anchor=1.0) == []
 
 
+def test_full_range_slots_explore_below_anchor_eps() -> None:
+    cfg = StudyConfig(selection_policy="lowest_k", refinement_trials=8)
+    points = refinement_schedule(cfg, k_anchor=20, eps_anchor=2.99)
+    assert any(p["eps"] < 2.99 for p in points)
+
+
 def test_selection_bounds_quality_loss_against_global_maximum() -> None:
     study = optuna.create_study(direction="maximize")
     for k, score in [(20, 1.0), (8, 0.995), (3, 0.989)]:
@@ -40,6 +46,30 @@ def test_selection_bounds_quality_loss_against_global_maximum() -> None:
     cfg = StudyConfig(selection_policy="lowest_k", refinement_trials=4, score_tolerance=0.01)
     assert select_trial(study.trials, cfg).params["k"] == 8
     cfg.score_tolerance = 0.0
+    assert select_trial(study.trials, cfg).params["k"] == 20
+
+
+def test_tolerance_boundary_is_inclusive() -> None:
+    study = optuna.create_study(direction="maximize")
+    for k, score in [(20, 1.0), (3, 0.875)]:
+        study.add_trial(
+            optuna.trial.create_trial(
+                value=score,
+                params={"k": k, "eps": 1.0},
+                distributions={
+                    "k": optuna.distributions.IntDistribution(3, 40),
+                    "eps": optuna.distributions.FloatDistribution(0.5, 3.0, log=True),
+                },
+                user_attrs={"evaluation_success": True},
+            )
+        )
+    cfg = StudyConfig(
+        selection_policy="lowest_k",
+        refinement_trials=1,
+        score_tolerance=0.125,
+    )
+    assert select_trial(study.trials, cfg).params["k"] == 3
+    cfg.score_tolerance = 0.124
     assert select_trial(study.trials, cfg).params["k"] == 20
 
 

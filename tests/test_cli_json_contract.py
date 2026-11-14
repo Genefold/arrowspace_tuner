@@ -8,6 +8,7 @@ top_k, best_tau outside graph_params) is checked against that output.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -115,8 +116,15 @@ def test_lowest_k_report_stdout_is_single_json(
             "json",
         ],
     )
-    assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
+    if importlib.util.find_spec("plotly") is None or importlib.util.find_spec("pandas") is None:
+        assert result.exit_code == 5
+        assert payload["status"] == "output_error"
+        assert payload["error_code"] == "report_write_failed"
+        assert payload["graph_params"] is None
+        assert "best_tau" not in payload
+        return
+    assert result.exit_code == 0, result.output
     assert "best_tau" not in payload
     assert payload["selection"]["policy"] == "lowest_k"
     assert payload["n_trials_requested"] == 7
