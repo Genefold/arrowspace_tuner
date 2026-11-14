@@ -2,7 +2,7 @@
 
 ## T-001 — eps/k-only tuning with targeted low-k refinement
 
-- State: IMPLEMENTED — final CI pending
+- State: DONE — implementation/local verification complete; merge gated by PR CI
 - Dependencies: approved implementation spec; no other tasks.
 - Acceptance:
   - Optimize eps/k only; tau is fixed internally and absent from public results.
@@ -39,13 +39,16 @@
     when extras are installed. Simulated no-Plotly verification: 2 passed.
   - Added checkpoint hardening for full-range eps exploration, inclusive tolerance
     boundaries, and reporting a selected score below the raw maximum.
-- Commit: e0c9315 (implementation).
+- Commits: e0c9315 (implementation), af2c19c (checkpoint/report-contract hardening).
 - PR: https://github.com/Genefold/arrowspace_tuner/pull/49
-- Checkpoint: no blocking correctness/security/test findings in bounded source
-  reviews. Reviewers could not independently execute commands or read the external
-  spec; the contract is now available at docs/spec-lowest-k.md. Parent verification
-  supplies the diff/check results. Optional cache cleanup and additional resume
-  variants are deferred, not mixed into this feature.
+- Checkpoint: APPROVE from the correctness reviewer after full diff/spec review;
+  security GO with no findings; final test-quality signoff GO at af2c19c.
+  Reviewers did not independently execute commands; parent verification supplies
+  the recorded check results. Optional cache cleanup and additional resume variants
+  are deferred, not mixed into this feature.
+- CI at af2c19c: Python 3.12/3.13 tests, Ruff/mypy on both versions, and installed
+  wheel smoke all pass (run 43604903995). Final ledger-only update retains the
+  same verified source/tests.
 - Accepted risks: stochastic native builds; Optuna/SQLite warnings; pre-existing
   unrelated format issue. No global minimum-k guarantee.
 - Rollback: revert this task's commits together; use a new compatible study.
