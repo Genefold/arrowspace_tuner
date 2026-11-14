@@ -6,7 +6,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased]
+## [0.30.1] — 2026-11-14
+
+Tuner release for the ArrowSpace **0.30.x compatibility line**
+(`arrowspace>=0.30.0,<0.31`). The patch number identifies tuner revisions,
+not a required matching ArrowSpace patch. This release includes breaking tuner
+API changes; see the migration notes below.
 
 ### Added
 
