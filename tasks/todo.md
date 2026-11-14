@@ -69,4 +69,9 @@
 - Artifacts: dist/release-0.30.1/ (wheel and source distribution).
 - Release notes: docs/releases/0.30.1.md.
 - Commit: release-preparation commit containing this ledger.
-- PR: release-preparation PR for review; no merge/tag/publication authorized here.
+- PR: https://github.com/Genefold/arrowspace_tuner/pull/50
+- User subsequently explicitly authorized publication of tuner 0.30.1.
+- Pre-publication checkpoint caught stale quickstart tau discovery and SemVer
+  claims; corrected both with a failing-then-passing documentation regression.
+- Publishing is gated on green PR CI and final checkpoint approval. Release
+  workflow and PyPI verification are tracked in the GitHub release.

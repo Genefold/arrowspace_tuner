@@ -2,7 +2,9 @@
 
 All notable changes to `arrowspace_tuner` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
-Versioning follows [Semantic Versioning](https://semver.org/).
+Versioning follows the ArrowSpace compatibility line: major/minor numbers track
+the supported ArrowSpace series, while tuner patch revisions advance independently.
+Tuner patches may include explicitly documented breaking API changes.
 
 ---
 

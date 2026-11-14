@@ -54,7 +54,7 @@ from arrowspace import ArrowSpaceBuilder   # builder comes from `arrowspace`
 
 embeddings = np.load("corpus.npy")   # shape (N, D) float64
 
-# One-liner: auto-discover eps, k, tau — runs in ~15 min on 50k corpus
+# One-liner: auto-discover eps and k — runs in ~15 min on 50k corpus
 graph_params = arrowspace_tuner.tune(embeddings)
 
 # The caller owns the build step
