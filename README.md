@@ -5,19 +5,27 @@
 [![Python](https://img.shields.io/pypi/pyversions/arrowspace-tuner)](https://pypi.org/project/arrowspace-tuner/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-Hyperparameter discovery for [ArrowSpace](https://github.com/tuned-org-uk/arrowspace-rs) — automatically finds the best `eps`, `k`, and `tau` for your corpus using a query-free spectral objective.
+Hyperparameter discovery for [ArrowSpace](https://github.com/tuned-org-uk/arrowspace-rs) — automatically finds `eps` and `k` for your corpus using a query-free spectral objective, with optional quality-first low-k refinement.
+
+Version **0.30.1** targets the **0.30.x compatibility line** of ArrowSpace
+(`>=0.30.0,<0.31`). Major/minor numbers track ArrowSpace compatibility; tuner
+patch revisions are independent. This is compatibility-aligned versioning, not
+a promise of API compatibility between tuner patches. See
+[0.30.1 release notes](docs/releases/0.30.1.md) for the breaking tau removal.
 
 ## Why
 
-ArrowSpace's retrieval quality depends on three parameters:
+The tuner searches two graph-building parameters:
 
 | Parameter | What it controls |
 |---|---|
 | `eps` | Neighbourhood radius for graph edges |
 | `k` | Number of nearest neighbours per node |
-| `tau` | Search temperature (query-time, tuned automatically) |
 
 Setting these by hand is tedious and corpus-dependent. `arrowspace_tuner` uses [Optuna](https://optuna.org/) and a label-free spectral MRR proxy to find them automatically in minutes.
+
+Retrieval scoring uses a fixed internal temperature. Query-time temperature
+remains the caller's choice; it is not optimized or returned.
 
 ## Install
 
@@ -46,7 +54,7 @@ from arrowspace import ArrowSpaceBuilder   # builder comes from `arrowspace`
 
 embeddings = np.load("corpus.npy")   # shape (N, D) float64
 
-# One-liner: auto-discover eps, k, tau — runs in ~15 min on 50k corpus
+# One-liner: auto-discover eps and k — runs in ~15 min on 50k corpus
 graph_params = arrowspace_tuner.tune(embeddings)
 
 # The caller owns the build step

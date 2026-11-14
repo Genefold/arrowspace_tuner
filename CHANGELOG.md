@@ -2,11 +2,18 @@
 
 All notable changes to `arrowspace_tuner` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
-Versioning follows [Semantic Versioning](https://semver.org/).
+Versioning follows the ArrowSpace compatibility line: major/minor numbers track
+the supported ArrowSpace series, while tuner patch revisions advance independently.
+Tuner patches may include explicitly documented breaking API changes.
 
 ---
 
-## [Unreleased]
+## [0.30.1] — 2026-11-14
+
+Tuner release for the ArrowSpace **0.30.x compatibility line**
+(`arrowspace>=0.30.0,<0.31`). The patch number identifies tuner revisions,
+not a required matching ArrowSpace patch. This release includes breaking tuner
+API changes; see the migration notes below.
 
 ### Added
 

@@ -16,3 +16,10 @@ Dependency order within this task:
 No unrelated dependency, CI, or release-version changes.
 Use TDD for behavior, then full pytest, Ruff, mypy, and wheel build.
 Do not merge with failing checks or an unresolved checkpoint.
+
+## T-002 — prepare aligned tuner release 0.30.1
+
+Dependency: merged T-001. Keep ArrowSpace dependency `>=0.30.0,<0.31`.
+Prepare metadata/lock version, changelog, release notes, and compatibility-line
+documentation. Verify metadata consistency and built distributions. Open a
+release-preparation PR; do not tag, publish a GitHub release, or upload to PyPI.

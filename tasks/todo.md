@@ -52,3 +52,26 @@
 - Accepted risks: stochastic native builds; Optuna/SQLite warnings; pre-existing
   unrelated format issue. No global minimum-k guarantee.
 - Rollback: revert this task's commits together; use a new compatible study.
+
+## T-002 — prepare release 0.30.1
+
+- State: DONE — prepared for review, not tagged or published
+- Depends on: merged T-001 / PR #49.
+- Acceptance: tuner version 0.30.1; ArrowSpace compatibility remains 0.30.x;
+  manifest/lock/artifacts agree; release notes prominently document breaking
+  tau removal; no tag or publication.
+- TDD: release metadata and README/changelog tests failed on 0.30.0/stale
+  introduction before preparation changes.
+- Verification: release-focused tests, full pytest, Ruff, mypy, uv lock check,
+  sdist/wheel build and twine validation.
+- Results: 312 tests pass; Ruff, strict mypy, lock check, sdist/wheel build,
+  and twine checks pass. Dependency range is unchanged; no CI/runtime changes.
+- Artifacts: dist/release-0.30.1/ (wheel and source distribution).
+- Release notes: docs/releases/0.30.1.md.
+- Commit: release-preparation commit containing this ledger.
+- PR: https://github.com/Genefold/arrowspace_tuner/pull/50
+- User subsequently explicitly authorized publication of tuner 0.30.1.
+- Pre-publication checkpoint caught stale quickstart tau discovery and SemVer
+  claims; corrected both with a failing-then-passing documentation regression.
+- Publishing is gated on green PR CI and final checkpoint approval. Release
+  workflow and PyPI verification are tracked in the GitHub release.
