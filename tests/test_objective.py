@@ -189,7 +189,7 @@ class TestMakeObjective:
             assert "fiedler" in attrs
             assert "var_lambda" in attrs
             assert "mrr_proxy" in attrs
-            assert "tau" in attrs
+            assert "tau" not in attrs
             assert "n_sample" in attrs
             assert "n_probe" in attrs
 
@@ -202,7 +202,7 @@ class TestMakeObjective:
 
         completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         if completed:
-            assert set(completed[0].params.keys()) == {"eps", "k", "tau"}
+            assert set(completed[0].params.keys()) == {"eps", "k"}
 
     def test_sample_n_respected(
         self, embeddings_medium: np.ndarray, fast_study_config: StudyConfig
@@ -327,6 +327,7 @@ class TestMakeObjective:
                 return list(np.linspace(0.1, 0.9, n_items))
 
             def search_batch(self, queries: object, gl: object, tau: float) -> list[Any]:
+                assert tau == 0.5
                 out = []
                 for r in range(len(queries)):
                     if r % 2 == 0:

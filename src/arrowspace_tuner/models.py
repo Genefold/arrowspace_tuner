@@ -10,7 +10,7 @@ These are the stable contracts for issue #17:
 Two naming rules are load-bearing (see CHANGELOG 0.4.1):
 
 - graph parameters use ArrowSpace's native ``topk`` key — never ``top_k``;
-- ``best_tau`` is a search-time result and is NEVER part of ``graph_params``.
+- tau is fixed internally for scoring and is not part of the public result.
 """
 
 from __future__ import annotations
@@ -28,10 +28,6 @@ GRAPH_BUILD_KEYS: tuple[str, ...] = ("eps", "k", "topk", "p", "sigma")
 
 #: Supported input file formats.
 SUPPORTED_FORMATS: tuple[str, ...] = ("npy", "npz")
-
-#: Valid search-time interval for tau.
-TAU_LOW: float = 0.0
-TAU_HIGH: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -52,9 +48,9 @@ class TuneRequest:
     k_low: int = 10
     k_high: int = 45
 
-    tau_low: float = 0.0
-    tau_high: float = 1.0
-
+    selection_policy: str = "best_score"
+    score_tolerance: float = 0.0
+    refinement_trials: int = 0
     n_probe: int = 50
     n_jobs: int = 1
 
@@ -100,7 +96,7 @@ class TuneResult:
     status: Literal["ok", "validation_error", "tuning_error", "output_error", "interrupted"] = "ok"
 
     graph_params: dict[str, float | int | None] | None = None
-    best_tau: float | None = None
+    selection: dict[str, object] = field(default_factory=dict)
 
     best_score: float | None = None
     best_fiedler: float | None = None
@@ -160,7 +156,6 @@ def tune_result_to_dict(result: TuneResult) -> dict[str, object]:
 
     Rules:
     - preserve ``graph_params["topk"]`` (never emit ``top_k``);
-    - ``best_tau`` stays a top-level key, outside ``graph_params``;
     - tuples become JSON arrays;
     - non-finite floats become ``null``;
     - ``schema_version`` is always present.
@@ -169,7 +164,7 @@ def tune_result_to_dict(result: TuneResult) -> dict[str, object]:
         "schema_version": result.schema_version,
         "status": result.status,
         "graph_params": (dict(result.graph_params) if result.graph_params is not None else None),
-        "best_tau": _json_float(result.best_tau),
+        "selection": dict(result.selection),
         "best_score": _json_float(result.best_score),
         "best_fiedler": _json_float(result.best_fiedler),
         "best_var_lambda": _json_float(result.best_var_lambda),

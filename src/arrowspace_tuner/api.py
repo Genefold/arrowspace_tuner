@@ -37,7 +37,8 @@ def tune(
         Forwarded to EpsTuner(**kwargs) when tuner is None.
         All EpsTuner constructor params are supported: n_trials, sample_n,
         seed, study_name, storage, eps_low, eps_high, k_low, k_high,
-        tau_low, tau_high, n_probe, n_jobs, max_clusters, cluster_radius.
+        n_probe, n_jobs, max_clusters, cluster_radius, selection_policy,
+        score_tolerance, refinement_trials.
 
     Returns
     -------
@@ -48,12 +49,8 @@ def tune(
 
     Notes
     -----
-    tau is not included in the returned dict — it is a query-time parameter.
-    To access best_tau, pass a pre-configured EpsTuner and inspect it after:
-
-        tuner = EpsTuner(n_trials=30)
-        graph_params = tune(embeddings, tuner=tuner)
-        print(tuner.best_tau)
+    Retrieval quality is evaluated at a fixed internal temperature; tau is
+    neither optimized nor returned.
 
     Examples
     --------
@@ -77,7 +74,6 @@ def tune(
 
         tuner = EpsTuner(n_trials=30, n_jobs=-1)
         graph_params = at.tune(embeddings, tuner=tuner)
-        print(tuner.best_tau)   # optimal search temperature
         tuner.save_report()     # persist trial data
 
     Resuming an interrupted run::

@@ -92,7 +92,55 @@ def test_graph_params_contain_no_tau(json_run: str) -> None:
 
 def test_best_tau_is_top_level(json_run: str) -> None:
     payload = json.loads(json_run)
-    assert 0.0 <= payload["best_tau"] <= 1.0
+    assert "best_tau" not in payload
+
+
+def test_lowest_k_report_stdout_is_single_json(
+    runner: CliRunner, npy_file: Path, tmp_path: Path
+) -> None:
+    result = runner.invoke(
+        cli.main,
+        [
+            "tune",
+            str(npy_file),
+            *CLI_BOUNDS,
+            "--selection-policy",
+            "lowest_k",
+            "--refinement-trials",
+            "4",
+            "--save-report",
+            "--report-dir",
+            str(tmp_path / "reports"),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert "best_tau" not in payload
+    assert payload["selection"]["policy"] == "lowest_k"
+    assert payload["n_trials_requested"] == 7
+    report = Path(payload["report_path"])
+    assert (
+        json.loads((report / "best_params.json").read_text())["params"] == payload["graph_params"]
+    )
+
+
+def test_inspect_legacy_result_does_not_reemit_tau(runner: CliRunner, tmp_path: Path) -> None:
+    path = tmp_path / "legacy.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "status": "ok",
+                "best_tau": 0.8,
+                "graph_params": {"eps": 1.0, "k": 3, "topk": 1, "p": 2.0, "sigma": None},
+            }
+        )
+    )
+    result = runner.invoke(cli.main, ["inspect", str(path), "--format", "json"])
+    assert result.exit_code == 0
+    assert "best_tau" not in json.loads(result.stdout)
 
 
 def test_schema_version_is_present(json_run: str) -> None:
@@ -100,15 +148,13 @@ def test_schema_version_is_present(json_run: str) -> None:
 
 
 def test_failure_output_is_valid_json(runner: CliRunner, npy_file: Path) -> None:
-    result = runner.invoke(
-        cli.main, ["tune", str(npy_file), "--tau-high", "2.0", "--format", "json"]
-    )
+    result = runner.invoke(cli.main, ["tune", str(npy_file), "--eps-low", "-1", "--format", "json"])
     assert result.exit_code != 0
     payload = json.loads(result.stdout)
     assert payload["status"] == "validation_error"
-    assert payload["error_code"] == "invalid_tau_bounds"
+    assert payload["error_code"] == "invalid_eps_bounds"
     assert payload["graph_params"] is None
-    assert payload["best_tau"] is None
+    assert "best_tau" not in payload
 
 
 def test_failure_output_on_invalid_matrix_is_json(runner: CliRunner, tmp_path: Path) -> None:
@@ -198,7 +244,7 @@ def test_json_failure_does_not_emit_second_json_object_to_stderr(
 ) -> None:
     result = runner.invoke(
         cli.main,
-        ["tune", str(npy_file), "--tau-high", "2.0", "--format", "json"],
+        ["tune", str(npy_file), "--eps-low", "-1", "--format", "json"],
     )
     assert result.exit_code == 3
     # stdout: exactly one JSON document
@@ -255,7 +301,7 @@ def test_json_output_write_failure_has_status_output_error(
     assert payload["status"] == "output_error"
     assert payload["error_code"] == "output_write_failed"
     assert payload["graph_params"] is None
-    assert payload["best_tau"] is None
+    assert "best_tau" not in payload
 
 
 def test_json_output_write_failure_exits_5(

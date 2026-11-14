@@ -68,11 +68,11 @@ class TestTune:
         assert len(tuner.study.trials) == 3
         assert isinstance(graph_params, dict)
 
-    def test_best_tau_accessible_via_tuner_arg(self, embeddings_small: np.ndarray) -> None:
+    def test_tau_not_exposed_via_tuner_arg(self, embeddings_small: np.ndarray) -> None:
         tuner = EpsTuner(n_trials=3, n_probe=20)
         at.tune(embeddings_small, tuner=tuner)
-        assert tuner.best_tau is not None
-        assert isinstance(tuner.best_tau, float)
+        assert not hasattr(tuner, "best_tau")
+        assert all(set(t.params) <= {"eps", "k"} for t in tuner.study.trials)
 
 
 class TestOptuna:

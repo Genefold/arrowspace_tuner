@@ -70,15 +70,13 @@ def test_get_tuner_info_schema_is_stable() -> None:
         "arrowspace_requirement",
         "supported_input_formats",
         "graph_build_keys",
-        "search_time_key",
-        "tau_range",
         "default_n_trials",
         "default_n_probe",
         "security",
     }
     assert info["supported_input_formats"] == ["npy", "npz"]
     assert info["graph_build_keys"] == ["eps", "k", "topk", "p", "sigma"]
-    assert info["search_time_key"] == "best_tau"
+    assert "search_time_key" not in info
     assert info["security"]["transport"] == "stdio"
     assert info["security"]["remote_urls_supported"] is False
 
@@ -108,35 +106,61 @@ def test_tune_graph_returns_tune_result(ctx: McpContext, npy_file: Path) -> None
     assert payload["status"] == "ok"
     assert set(payload["graph_params"]) == {"eps", "k", "topk", "p", "sigma"}
     assert "tau" not in payload["graph_params"]
-    assert 0.0 <= payload["best_tau"] <= 1.0
+    assert "best_tau" not in payload
+
+
+def test_refinement_cannot_bypass_mcp_trial_cap(ctx: McpContext) -> None:
+    payload = _tool_tune_graph(
+        ctx,
+        "/must-not-be-read.npy",
+        n_trials=ctx.limits.max_trials,
+        selection_policy="lowest_k",
+        refinement_trials=1,
+    )
+    assert payload["error_code"] == "invalid_trials"
 
 
 def test_build_instruction_separates_graph_params_from_search_tau() -> None:
-    payload = _tool_build_instruction(
-        {"eps": 1.6, "k": 38, "topk": 19, "p": 2.0, "sigma": None}, 0.8
-    )
-    assert payload["search_tau"] == 0.8
+    payload = _tool_build_instruction({"eps": 1.6, "k": 38, "topk": 19, "p": 2.0, "sigma": None})
+    assert "search_tau" not in payload
     assert set(payload["graph_params"]) == {"eps", "k", "topk", "p", "sigma"}
     assert "ArrowSpaceBuilder().build(graph_params, embeddings)" in payload["python_example"]
-    assert "tau=search_tau" in payload["python_example"]
-    assert any("must not be passed" in note for note in payload["notes"])
+    assert "tau" not in payload["python_example"]
+    assert any("build-time" in note for note in payload["notes"])
 
 
 def test_build_instruction_rejects_tau_outside_unit_interval() -> None:
-    payload = _tool_build_instruction(
-        {"eps": 1.0, "k": 10, "topk": 5, "p": 2.0, "sigma": None}, 1.5
-    )
-    assert payload["error_code"] == "invalid_tau"
+    with pytest.raises(TypeError):
+        _tool_build_instruction({"eps": 1.0, "k": 10, "topk": 5, "p": 2.0, "sigma": None}, 1.5)
 
 
 def test_build_instruction_rejects_missing_keys() -> None:
-    payload = _tool_build_instruction({"eps": 1.0, "k": 10}, 0.5)
+    payload = _tool_build_instruction({"eps": 1.0, "k": 10})
     assert payload["error_code"] == "invalid_graph_params"
 
 
 def test_same_seed_and_file_match_service_result(
-    ctx: McpContext, npy_file: Path, fast_tune_request: TuneRequest
+    ctx: McpContext,
+    npy_file: Path,
+    fast_tune_request: TuneRequest,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import optuna
+
+    import arrowspace_tuner.tuner as tuner_module
+
+    def factory(embeddings: object, cfg: object) -> tuple[object, dict[str, object]]:
+        def objective(trial: optuna.Trial) -> float:
+            trial.suggest_int("k", 3, 10)
+            trial.suggest_float("eps", 0.5, 2.0, log=True)
+            trial.set_user_attr("evaluation_success", True)
+            return 1.0
+
+        return objective, {}
+
+    # Native eigensolver results can vary slightly. This test checks adapter
+    # parity for identical evaluated results, not native floating-point repeatability.
+    monkeypatch.setattr(tuner_module, "make_objective", factory)
     expected = run_tuning(fast_tune_request)
     got = _tool_tune_graph(
         ctx,
@@ -150,7 +174,7 @@ def test_same_seed_and_file_match_service_result(
         n_probe=20,
     )
     assert got["graph_params"] == expected.graph_params
-    assert got["best_tau"] == expected.best_tau
+    assert got["best_score"] == expected.best_score
 
 
 def test_mcp_validation_failure_is_structured(ctx: McpContext, npz_multi_file: Path) -> None:
@@ -202,57 +226,55 @@ def test_tune_graph_report_write_failure_returns_output_error(
     assert payload["status"] == "output_error"
     assert payload["error_code"] == "report_write_failed"
     assert payload["graph_params"] is None
-    assert payload["best_tau"] is None
+    assert "best_tau" not in payload
 
 
 VALID_PARAMS = {"eps": 1.6, "k": 38, "topk": 19, "p": 2.0, "sigma": None}
 
 
 def test_build_instruction_rejects_negative_eps() -> None:
-    payload = _tool_build_instruction({**VALID_PARAMS, "eps": -1}, 0.8)
+    payload = _tool_build_instruction({**VALID_PARAMS, "eps": -1})
     assert payload["error_code"] == "invalid_graph_params"
     assert "eps" in payload["error_message"]
 
 
 def test_build_instruction_rejects_bool_k() -> None:
-    payload = _tool_build_instruction({**VALID_PARAMS, "k": True}, 0.8)
+    payload = _tool_build_instruction({**VALID_PARAMS, "k": True})
     assert payload["error_code"] == "invalid_graph_params"
     assert "k" in payload["error_message"]
 
 
 def test_build_instruction_rejects_topk_larger_than_k() -> None:
-    payload = _tool_build_instruction({**VALID_PARAMS, "topk": 50}, 0.8)
+    payload = _tool_build_instruction({**VALID_PARAMS, "topk": 50})
     assert payload["error_code"] == "invalid_graph_params"
     assert "topk" in payload["error_message"]
 
 
 def test_build_instruction_rejects_zero_p() -> None:
-    payload = _tool_build_instruction({**VALID_PARAMS, "p": 0}, 0.8)
+    payload = _tool_build_instruction({**VALID_PARAMS, "p": 0})
     assert payload["error_code"] == "invalid_graph_params"
     assert "p" in payload["error_message"]
 
 
 def test_build_instruction_rejects_non_finite_sigma() -> None:
-    payload = _tool_build_instruction({**VALID_PARAMS, "sigma": float("nan")}, 0.8)
+    payload = _tool_build_instruction({**VALID_PARAMS, "sigma": float("nan")})
     assert payload["error_code"] == "invalid_graph_params"
     assert "sigma" in payload["error_message"]
 
 
 def test_build_instruction_accepts_sigma_none() -> None:
-    payload = _tool_build_instruction(dict(VALID_PARAMS), 0.8)
+    payload = _tool_build_instruction(dict(VALID_PARAMS))
     assert "error_code" not in payload
     assert payload["graph_params"]["sigma"] is None
-    assert payload["search_tau"] == 0.8
+    assert "search_tau" not in payload
 
 
 def test_build_instruction_rejects_string_eps() -> None:
-    payload = _tool_build_instruction({**VALID_PARAMS, "eps": "1.5"}, 0.8)
+    payload = _tool_build_instruction({**VALID_PARAMS, "eps": "1.5"})
     assert payload["error_code"] == "invalid_graph_params"
 
 
-def test_build_instruction_rejects_bool_and_nan_tau() -> None:
-    assert _tool_build_instruction(dict(VALID_PARAMS), True)["error_code"] == "invalid_tau"
-    assert _tool_build_instruction(dict(VALID_PARAMS), float("nan"))["error_code"] == (
-        "invalid_tau"
-    )
-    assert _tool_build_instruction(dict(VALID_PARAMS), "0.5")["error_code"] == ("invalid_tau")
+@pytest.mark.parametrize("value", [True, float("nan"), "0.5"])
+def test_build_instruction_rejects_obsolete_tau(value: object) -> None:
+    with pytest.raises(TypeError):
+        _tool_build_instruction(dict(VALID_PARAMS), value)

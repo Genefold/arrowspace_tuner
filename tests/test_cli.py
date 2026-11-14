@@ -114,9 +114,9 @@ def test_tune_invalid_file_exits_3(runner: CliRunner, tmp_path: Path) -> None:
 
 
 def test_tune_invalid_tau_exits_3(runner: CliRunner, npy_file: Path) -> None:
-    # tau bounds are validated by the service layer → exit 3 (EXIT_INPUT)
+    # Obsolete tau options are usage errors.
     result = runner.invoke(cli.main, ["tune", str(npy_file), "--tau-high", "1.5", *CLI_BOUNDS])
-    assert result.exit_code == 3
+    assert result.exit_code == 2
 
 
 def test_dry_run_exits_zero_and_skips_tuning(
@@ -154,7 +154,7 @@ def test_output_contains_valid_tune_result_json(tuned_result: Path) -> None:
     assert set(payload["graph_params"]) == {"eps", "k", "topk", "p", "sigma"}
     assert "top_k" not in payload["graph_params"]
     assert "tau" not in payload["graph_params"]
-    assert payload["best_tau"] is not None
+    assert "best_tau" not in payload
     assert payload["seed"] == 42
     assert payload["input_sha256"]
 
@@ -197,7 +197,7 @@ def test_save_report_without_report_dir_exits_3(runner: CliRunner, npy_file: Pat
     assert payload["status"] == "validation_error"
     assert payload["error_code"] == "missing_report_dir"
     assert payload["graph_params"] is None
-    assert payload["best_tau"] is None
+    assert "best_tau" not in payload
 
 
 def test_report_write_failure_exits_5(
@@ -238,7 +238,7 @@ def test_report_write_failure_exits_5(
     assert payload["status"] == "output_error"
     assert payload["error_code"] == "report_write_failed"
     assert payload["graph_params"] is None
-    assert payload["best_tau"] is None
+    assert "best_tau" not in payload
 
 
 def test_output_write_failure_exits_5(runner: CliRunner, npy_file: Path, tmp_path: Path) -> None:
@@ -255,7 +255,7 @@ def test_output_write_failure_exits_5(runner: CliRunner, npy_file: Path, tmp_pat
     assert payload["status"] == "output_error"
     assert payload["error_code"] == "output_write_failed"
     assert payload["graph_params"] is None
-    assert payload["best_tau"] is None
+    assert "best_tau" not in payload
 
 
 def test_k_low_exceeds_corpus_exits_3(runner: CliRunner, npy_file: Path) -> None:
@@ -268,7 +268,7 @@ def test_k_low_exceeds_corpus_exits_3(runner: CliRunner, npy_file: Path) -> None
     assert payload["schema_version"] == "1.0"
     assert payload["error_code"] == "k_low_exceeds_corpus"
     assert payload["graph_params"] is None
-    assert payload["best_tau"] is None
+    assert "best_tau" not in payload
 
 
 def test_k_high_clip_succeeds_and_warns(runner: CliRunner, npy_file: Path) -> None:
@@ -372,7 +372,7 @@ def test_version_json(runner: CliRunner) -> None:
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload["graph_build_keys"] == ["eps", "k", "topk", "p", "sigma"]
-    assert payload["search_time_result"] == "best_tau"
+    assert "search_time_result" not in payload
 
 
 # ── text output sample ────────────────────────────────────────────────────────
@@ -381,5 +381,5 @@ def test_version_json(runner: CliRunner) -> None:
 def test_tune_text_output_mentions_best_tau(runner: CliRunner, npy_file: Path) -> None:
     result = runner.invoke(cli.main, ["tune", str(npy_file), *CLI_BOUNDS])
     assert result.exit_code == 0
-    assert "Search-time parameter" in result.output
-    assert "best_tau" in result.output
+    assert "Search-time parameter" not in result.output
+    assert "best_tau" not in result.output

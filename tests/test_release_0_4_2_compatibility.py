@@ -52,8 +52,6 @@ def _fast_tuner() -> EpsTuner:
         eps_high=2.0,
         k_low=3,
         k_high=10,
-        tau_low=0.3,
-        tau_high=1.2,
         n_probe=20,
     )
 
@@ -96,7 +94,7 @@ def test_readme_and_examples_share_contract() -> None:
     readme = README_PATH.read_text(encoding="utf-8")
     assert "from arrowspace import ArrowSpaceBuilder" in readme
     assert "arrowspace_tuner.tune(" in readme
-    assert "tuner.best_tau" in readme
+    assert "tuner.best_tau" not in readme
 
     for name in ("quickstart.py", "power_user.py"):
         src = (EXAMPLES_DIR / name).read_text(encoding="utf-8")
@@ -128,7 +126,7 @@ def test_fit_output_round_trips_to_arrowspace_builder(
     graph_params = fitted_tuner.best_params
     assert graph_params is not None
     aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings_small)
-    results = aspace.search_batch(embeddings_small[:5], gl, fitted_tuner.best_tau)
+    results = aspace.search_batch(embeddings_small[:5], gl, 0.5)
     assert results is not None
     assert len(results) == 5
 
@@ -138,7 +136,7 @@ def test_graph_params_round_trip_to_arrowspace_builder(
     embeddings_small: np.ndarray,
 ) -> None:
     aspace, gl = ArrowSpaceBuilder().build(fitted_tuner.graph_params, embeddings_small)
-    results = aspace.search_batch(embeddings_small[:5], gl, fitted_tuner.best_tau)
+    results = aspace.search_batch(embeddings_small[:5], gl, 0.5)
     assert results is not None
 
 
@@ -193,8 +191,8 @@ def test_public_graph_params_emit_topk_not_top_k(
 
 
 def test_best_tau_is_not_in_graph_params(fitted_tuner: EpsTuner) -> None:
-    """best_tau is a search-time result, excluded from graph-build dicts."""
-    assert isinstance(fitted_tuner.best_tau, float)
+    """No optimized retrieval temperature is exposed."""
+    assert not hasattr(fitted_tuner, "best_tau")
     assert "tau" not in fitted_tuner.graph_params
     assert "tau" not in fitted_tuner.best_params
 
@@ -218,7 +216,7 @@ def test_corpus_with_isolated_items_round_trips() -> None:
     tuner = EpsTuner(n_trials=5, seed=3407, eps_low=0.5, eps_high=3.0, n_probe=20)
     graph_params = tuner.fit(X)
     aspace, gl = ArrowSpaceBuilder().build(graph_params, X)
-    results = aspace.search_batch(X[:10], gl, tuner.best_tau)
+    results = aspace.search_batch(X[:10], gl, 0.5)
     assert results is not None
     assert len(results) == 10
 
@@ -294,8 +292,6 @@ def _compat_cfg(name: str) -> StudyConfig:
         eps_high=2.0,
         k_low=3,
         k_high=10,
-        tau_low=0.3,
-        tau_high=1.2,
         n_probe=20,
     )
 

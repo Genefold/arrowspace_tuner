@@ -21,6 +21,7 @@ from pathlib import Path
 import optuna
 
 from . import io as _io
+from .core.config import validate_selection
 from .io import InputValidationError, TuningExecutionError
 from .models import SCHEMA_VERSION, EmbeddingInfo, TuneRequest, TuneResult
 from .tuner import EpsTuner
@@ -37,11 +38,15 @@ def _arrowspace_version() -> str | None:
 
 def validate_request(request: TuneRequest) -> None:
     """
-    Validate scalar request bounds. Raises InputValidationError; tau is
-    search-time and must stay within [0, 1] — invalid values are rejected,
-    never clamped.
+    Validate scalar request bounds. Raises InputValidationError.
     """
-    if request.n_trials < 1:
+    try:
+        validate_selection(
+            request.selection_policy, request.score_tolerance, request.refinement_trials
+        )
+    except ValueError as exc:
+        raise InputValidationError(str(exc), code="invalid_selection") from exc
+    if type(request.n_trials) is not int or request.n_trials < 1:
         raise InputValidationError(
             f"n_trials must be >= 1; got {request.n_trials}.", code="invalid_trials"
         )
@@ -67,21 +72,6 @@ def validate_request(request: TuneRequest) -> None:
         raise InputValidationError(
             f"k_high must be >= k_low; got [{request.k_low}, {request.k_high}].",
             code="invalid_k_bounds",
-        )
-    if request.tau_low < 0.0:
-        raise InputValidationError(
-            f"tau_low must be within [0.0, 1.0]; got {request.tau_low}.",
-            code="invalid_tau_bounds",
-        )
-    if request.tau_high > 1.0:
-        raise InputValidationError(
-            f"tau_high must be within [0.0, 1.0]; got {request.tau_high}.",
-            code="invalid_tau_bounds",
-        )
-    if request.tau_high < request.tau_low:
-        raise InputValidationError(
-            f"tau_high must be >= tau_low; got [{request.tau_low}, {request.tau_high}].",
-            code="invalid_tau_bounds",
         )
     if request.n_probe < 1:
         raise InputValidationError(
@@ -120,7 +110,6 @@ def _error_result(
         schema_version=SCHEMA_VERSION,
         status=status,  # type: ignore[arg-type]
         graph_params=None,
-        best_tau=None,
         input_info=input_info,
         n_trials_requested=request.n_trials if request is not None else 0,
         arrowspace_tuner_version=_tuner_version(),
@@ -206,7 +195,6 @@ def run_tuning(request: TuneRequest) -> TuneResult:
             schema_version=SCHEMA_VERSION,
             status="ok",
             graph_params=None,
-            best_tau=None,
             input_info=input_info,
             elapsed_seconds=time.perf_counter() - started,
             arrowspace_tuner_version=_tuner_version(),
@@ -224,10 +212,11 @@ def run_tuning(request: TuneRequest) -> TuneResult:
             eps_high=request.eps_high,
             k_low=request.k_low,
             k_high=effective_k_high,
-            tau_low=request.tau_low,
-            tau_high=request.tau_high,
             n_probe=request.n_probe,
             n_jobs=request.n_jobs,
+            selection_policy=request.selection_policy,
+            score_tolerance=request.score_tolerance,
+            refinement_trials=request.refinement_trials,
         )
         graph_params = tuner.fit(embeddings)
     except RuntimeError as exc:
@@ -272,13 +261,13 @@ def run_tuning(request: TuneRequest) -> TuneResult:
         schema_version=SCHEMA_VERSION,
         status="ok",
         graph_params=dict(graph_params),
-        best_tau=tuner.best_tau,
+        selection=dict(tuner.selection),
         best_score=tuner.best_score,
         best_fiedler=tuner.best_fiedler,
         best_var_lambda=tuner.best_var_lambda,
         best_mrr_proxy=tuner.best_mrr_proxy,
         input_info=input_info,
-        n_trials_requested=request.n_trials,
+        n_trials_requested=request.n_trials + request.refinement_trials,
         n_trials_complete=n_complete,
         n_trials_pruned=n_pruned,
         elapsed_seconds=time.perf_counter() - started,

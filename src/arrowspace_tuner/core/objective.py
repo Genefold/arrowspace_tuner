@@ -14,7 +14,7 @@ Objective (maximise):
           + W_FIED * log1p(fiedler)      # connectivity health
           + W_VAR  * log1p(var_lambda)   # spectral richness
 
-Hyperparameters optimised by Optuna: eps, k, tau
+Hyperparameters optimised by Optuna: eps, k (retrieval uses fixed tau=0.5)
 
 Pruning checkpoints (MedianPruner in tuner.py):
     step=0  after Fiedler   — cheap proxy for connectivity
@@ -185,7 +185,7 @@ def build_and_score(
     # ── pruner checkpoint 0: after Fiedler ────────────────────────────────────
     if trial is not None:
         trial.report(fiedler, step=0)
-        if trial.should_prune():
+        if trial.user_attrs.get("phase") != "refinement" and trial.should_prune():
             raise optuna.TrialPruned()
 
     # ── degenerate guard 3: flat spectrum ─────────────────────────────────────
@@ -198,7 +198,7 @@ def build_and_score(
     # ── pruner checkpoint 1: after var_lambda ─────────────────────────────────
     if trial is not None:
         trial.report(fiedler + 0.5 * var_lambda, step=1)
-        if trial.should_prune():
+        if trial.user_attrs.get("phase") != "refinement" and trial.should_prune():
             raise optuna.TrialPruned()
 
     return fiedler, var_lambda, aspace, gl
@@ -215,7 +215,7 @@ def make_objective(
     Return ``(objective_fn, best_cache)`` closed over embeddings and cfg.
 
     ``objective_fn`` is passed directly to ``study.optimize()``.
-    It searches over eps, k, and tau simultaneously.
+    It searches over eps and k; retrieval uses a fixed internal tau.
 
     ``best_cache`` is a dict updated in-place whenever a trial beats the
     current best score::
@@ -276,12 +276,14 @@ def make_objective(
         # ── 2. suggest hyperparameters ────────────────────────────────────────
         k = trial.suggest_int("k", cfg.k_low, cfg.k_high)
         eps = trial.suggest_float("eps", cfg.eps_low, cfg.eps_high, log=True)
-        tau = trial.suggest_float("tau", cfg.tau_low, cfg.tau_high)
+        tau = 0.5
 
         params = BuildParams(
             eps=eps,
             k=k,
             topk=max(1, k // 2),
+            max_clusters=cfg.max_clusters,
+            cluster_radius=cfg.cluster_radius,
         )
 
         # ── 3. build graph + spectral diagnostics (includes pruner steps 0,1) ──
@@ -293,7 +295,8 @@ def make_objective(
             raise
         except Exception as exc:
             logger.warning("Trial %d unexpected error: %s", trial.number, exc, exc_info=True)
-            return 0.0
+            trial.set_user_attr("build_error", f"{type(exc).__name__}: {exc}")
+            raise optuna.TrialPruned() from exc
 
         # ── 4. fixed probe anchors, filtered to non-zero lambda (#24) ──────────
         # search_batch() raises "Lambda is zero for query N" when a probe
@@ -373,6 +376,9 @@ def make_objective(
             + W_FIED * float(np.log1p(fiedler))
             + W_VAR * float(np.log1p(var_lambda))
         )
+        if not np.isfinite(score):
+            raise optuna.TrialPruned("Nonfinite objective")
+        trial.set_user_attr("evaluation_success", True)
 
         # ── 9. update best-trial cache (full-corpus path only) ────────────────
         if not using_subsample and aspace is not None:
@@ -381,23 +387,21 @@ def make_objective(
                     best_cache["aspace"] = aspace
                     best_cache["gl"] = gl
                     best_cache["score"] = score
+                    best_cache["trial_number"] = trial.number
 
         # ── 10. log trial attributes ──────────────────────────────────────────
         trial.set_user_attr("fiedler", round(fiedler, 8))
         trial.set_user_attr("var_lambda", round(var_lambda, 8))
         trial.set_user_attr("mrr_proxy", round(mrr_proxy, 6))
-        trial.set_user_attr("tau", round(tau, 6))
         trial.set_user_attr("n_sample", len(emb_trial))
         trial.set_user_attr("n_probe", len(probe_idx))
 
         logger.info(
-            "Trial %03d | eps=%.5f k=%2d topk=%2d tau=%.3f | "
-            "fiedler=%.4f var=%.4f mrr=%.4f → score=%.6f",
+            "Trial %03d | eps=%.5f k=%2d topk=%2d | fiedler=%.4f var=%.4f mrr=%.4f → score=%.6f",
             trial.number,
             params.eps,
             params.k,
             params.topk,
-            tau,
             fiedler,
             var_lambda,
             mrr_proxy,

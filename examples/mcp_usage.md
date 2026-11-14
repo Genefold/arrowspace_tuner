@@ -35,8 +35,8 @@ with the platform path separator (`:` on Unix, `;` on Windows).
 | Tool | Purpose |
 |---|---|
 | `inspect_embeddings` | Validate a local matrix; returns shape, dtype, norms, hash. |
-| `tune_graph` | Run tuning; returns `graph_params` (build-time) and `best_tau` (search-time). |
-| `build_instruction` | Turn a TuneResult into an ArrowSpace build + search snippet. |
+| `tune_graph` | Optimize eps/k; returns `graph_params`, metrics, and selection metadata. |
+| `build_instruction` | Turn graph_params into an ArrowSpace build snippet. |
 | `get_tuner_info` | Server version, supported formats, security posture. |
 
 ## Example session
@@ -45,8 +45,12 @@ with the platform path separator (`:` on Unix, `;` on Windows).
    the file is a valid 2D matrix and reports any warnings.
 2. `tune_graph(path="/workspace/corpus_embeddings.npy", n_trials=30)` —
    returns the `TuneResult` JSON.
-3. `build_instruction(graph_params=<result>, best_tau=<result>)` — returns
-   the exact Python snippet, keeping `graph_params` out of the search call.
+3. `build_instruction(graph_params=<result["graph_params"]>)` — returns
+   the exact Python build snippet. Tau is neither optimized nor returned.
+
+For targeted low-k exploration, pass `selection_policy="lowest_k"`,
+`refinement_trials=8`, and optionally `score_tolerance=0.01` to `tune_graph`.
+Tolerance is an absolute difference in composite score and defaults to zero.
 
 ## Environment variables
 
@@ -54,7 +58,7 @@ with the platform path separator (`:` on Unix, `;` on Windows).
 |---|---:|---|
 | `ARROWSPACE_TUNER_ALLOWED_ROOTS` | — (required) | `os.pathsep`-separated roots the server may read. |
 | `ARROWSPACE_TUNER_MAX_INPUT_BYTES` | `2147483648` (2 GiB) | Reject larger files before loading. |
-| `ARROWSPACE_TUNER_MAX_TRIALS` | `100` | Reject `n_trials` above this cap. |
+| `ARROWSPACE_TUNER_MAX_TRIALS` | `100` | Cap `n_trials + refinement_trials`. |
 | `ARROWSPACE_TUNER_MAX_N_JOBS` | `4` | Reject `n_jobs` above this cap. |
 
 ## Security model

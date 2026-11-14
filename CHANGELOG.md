@@ -6,6 +6,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- Opt-in `selection_policy="lowest_k"` with an explicit extra
+  `refinement_trials` budget and absolute `score_tolerance` (default zero).
+- Deterministic low-k/high-eps refinement with full-range eps exploration,
+  selected-versus-raw winner metadata, and consistent saved graph parameters.
+
+### Changed
+
+- **Breaking:** optimize eps and k only. Remove tau bounds and best_tau from
+  Python, CLI, MCP, and reports. Retrieval evaluation uses fixed internal 0.5.
+  The ArrowSpace builder dictionary remains eps, k, topk, p, sigma.
+- **Breaking:** legacy tau-optimized studies require a new study; compatible
+  resumes validate evaluation data and settings before adding trials.
+- MCP trial limits include both main and refinement attempts.
+
 ## [0.30.0] — 2026-11-10
 
 ### Changed

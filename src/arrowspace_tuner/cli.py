@@ -24,8 +24,6 @@ from arrowspace_tuner.io import InputValidationError, TuningExecutionError
 from arrowspace_tuner.models import (
     SCHEMA_VERSION,
     SUPPORTED_FORMATS,
-    TAU_HIGH,
-    TAU_LOW,
     TuneRequest,
     TuneResult,
     embedding_info_to_dict,
@@ -84,7 +82,6 @@ def _json_error(status: str, error_code: str, error_message: str) -> str:
             "error_code": error_code,
             "error_message": error_message,
             "graph_params": None,
-            "best_tau": None,
         },
         sort_keys=True,
     )
@@ -135,9 +132,6 @@ def _render_text(result: TuneResult) -> str:
             "  sigma:      auto"
             if result.graph_params["sigma"] is None
             else f"  sigma:      {result.graph_params['sigma']:.6f}",
-            "",
-            "Search-time parameter:",
-            f"  best_tau:   {result.best_tau:.6f}",
             "",
             "Diagnostics:",
             f"  score:      {result.best_score:.6f}",
@@ -190,8 +184,14 @@ _FORMAT_OPTION = click.option(
 @click.option("--eps-high", type=float, default=12.0, show_default=True)
 @click.option("--k-low", type=int, default=10, show_default=True)
 @click.option("--k-high", type=int, default=45, show_default=True)
-@click.option("--tau-low", type=float, default=TAU_LOW, show_default=True)
-@click.option("--tau-high", type=float, default=TAU_HIGH, show_default=True)
+@click.option(
+    "--selection-policy",
+    type=click.Choice(["best_score", "lowest_k"]),
+    default="best_score",
+    show_default=True,
+)
+@click.option("--score-tolerance", type=float, default=0.0, show_default=True)
+@click.option("--refinement-trials", type=int, default=0, show_default=True)
 @click.option("--n-probe", type=int, default=50, show_default=True)
 @click.option("--n-jobs", type=int, default=1, show_default=True)
 @click.option("--report-dir", type=click.Path(path_type=Path), default=None)
@@ -233,8 +233,9 @@ def tune(
     eps_high: float,
     k_low: int,
     k_high: int,
-    tau_low: float,
-    tau_high: float,
+    selection_policy: str,
+    score_tolerance: float,
+    refinement_trials: int,
     n_probe: int,
     n_jobs: int,
     report_dir: Path | None,
@@ -256,8 +257,9 @@ def tune(
         eps_high=eps_high,
         k_low=k_low,
         k_high=k_high,
-        tau_low=tau_low,
-        tau_high=tau_high,
+        selection_policy=selection_policy,
+        score_tolerance=score_tolerance,
+        refinement_trials=refinement_trials,
         n_probe=n_probe,
         n_jobs=n_jobs,
         report_dir=report_dir,
@@ -408,6 +410,8 @@ def inspect(result_path: Path, output_format: str) -> None:
             EXIT_INPUT,
         )
         return
+    raw.pop("best_tau", None)
+    raw.pop("tau", None)
     if output_format == "json":
         click.echo(json.dumps(raw, sort_keys=True))
     else:
@@ -428,7 +432,6 @@ def _render_inspect_text(raw: dict[str, object]) -> str:
     else:
         lines.append("  n/a")
     lines += [
-        f"best_tau:   {raw.get('best_tau')}",
         f"score:      {raw.get('best_score')}",
         f"fiedler:    {raw.get('best_fiedler')}",
         f"var_lambda: {raw.get('best_var_lambda')}",
@@ -461,8 +464,6 @@ def version(output_format: str) -> None:
         "arrowspace_requirement": ">=0.30.0,<0.31",
         "supported_input_formats": list(SUPPORTED_FORMATS),
         "graph_build_keys": ["eps", "k", "topk", "p", "sigma"],
-        "search_time_result": "best_tau",
-        "tau_range": [TAU_LOW, TAU_HIGH],
         "result_schema_version": SCHEMA_VERSION,
     }
     if output_format == "json":

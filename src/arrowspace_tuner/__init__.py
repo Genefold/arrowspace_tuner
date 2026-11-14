@@ -9,7 +9,7 @@ Quickstart
 
     embeddings = np.load("corpus.npy")
 
-    # one-liner: auto-discover eps, k, tau
+    # one-liner: auto-discover eps and k
     graph_params = at.tune(embeddings)
     aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
@@ -19,7 +19,6 @@ Quickstart
     tuner = EpsTuner(n_trials=100, sample_n=10_000, eps_low=0.5, eps_high=3.0)
     graph_params = tuner.fit(embeddings)
     print(tuner.best_params)    # {"eps": 1.2, "k": 14, "topk": 7, "p": 2.0, "sigma": None}
-    print(tuner.best_tau)       # 0.8  (query-time — use at search time)
     print(tuner.best_score)
     tuner.save_report()         # requires pip install arrowspace-tuner[report]
 """
