@@ -117,8 +117,6 @@ def fast_study_config() -> StudyConfig:
         eps_high=2.0,
         k_low=3,
         k_high=10,
-        tau_low=0.3,
-        tau_high=1.2,
         n_probe=20,
     )
 
@@ -143,8 +141,6 @@ def flat_study_config() -> StudyConfig:
         eps_high=0.05,
         k_low=3,
         k_high=10,
-        tau_low=0.3,
-        tau_high=1.2,
         n_probe=10,
     )
 

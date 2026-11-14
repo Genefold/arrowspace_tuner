@@ -20,23 +20,23 @@ embeddings = corpus / np.clip(np.linalg.norm(corpus, axis=1, keepdims=True), 1e-
 tuner = EpsTuner(
     n_trials=15,
     seed=42,
+    selection_policy="lowest_k",
+    refinement_trials=8,
 )
 
 graph_params = tuner.fit(embeddings)
 # graph_params is build-time only: {"eps", "k", "topk", "p", "sigma"}.
-best_tau = tuner.best_tau  # query-time only — not in graph_params
 
 # The caller owns the build step.
 aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
 print("graph_params:", graph_params)
-print("best_tau:    ", best_tau)
 print("best_score:  ", tuner.best_score)
 print("best_fiedler:", tuner.best_fiedler)
 
 # graph_params is also accessible without file I/O after .fit()
 assert tuner.graph_params == graph_params
 
-# Search with the tuned tau.
-hits = aspace.search(embeddings[0], gl, tau=best_tau)
+# Query-time settings are the caller's choice, not optimization results.
+hits = aspace.search(embeddings[0], gl, tau=0.5)
 print("top hit:", hits[0] if hits else "no hits")

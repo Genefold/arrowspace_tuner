@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -116,14 +117,6 @@ class StudyConfig:
     k_low, k_high : int
         Bounds for k (nearest neighbours) search.
 
-    Search space — retrieval
-    ------------------------
-    tau_low, tau_high : float
-        Bounds for tau search. tau controls the ArrowSpace search
-        temperature passed to search_batch(). Optimising tau alongside
-        eps and k ensures the graph is evaluated at its best retrieval
-        operating point, not an arbitrary fixed tau.
-
     MRR proxy
     ---------
     n_probe : int
@@ -148,27 +141,42 @@ class StudyConfig:
     k_low: int = 3
     k_high: int = 40
 
-    # Search space — retrieval
-    tau_low: float = 0.1
-    tau_high: float = 1.0
-
     # MRR proxy — shared constant ensures api.optuna() and EpsTuner agree
     n_probe: int = _DEFAULT_N_PROBE
 
     max_clusters: int | None = None
     cluster_radius: float | None = None
 
+    selection_policy: str = "best_score"
+    score_tolerance: float = 0.0
+    refinement_trials: int = 0
+
     def __post_init__(self) -> None:
         """Validate search-space bounds at construction time."""
-        if self.n_trials < 1:
+        if type(self.n_trials) is not int or self.n_trials < 1:
             raise ValueError(f"n_trials must be >= 1, got {self.n_trials}")
+        validate_selection(self.selection_policy, self.score_tolerance, self.refinement_trials)
         if self.n_probe < 1:
             raise ValueError(f"n_probe must be >= 1, got {self.n_probe}")
-        if self.eps_low >= self.eps_high:
+        if not (0 < self.eps_low < self.eps_high < math.inf):
             raise ValueError(f"eps_low must be < eps_high, got [{self.eps_low}, {self.eps_high}]")
         if self.k_low >= self.k_high:
             raise ValueError(f"k_low must be < k_high, got [{self.k_low}, {self.k_high}]")
-        if self.tau_low > self.tau_high:
-            raise ValueError(f"tau_low must be < tau_high, got [{self.tau_low}, {self.tau_high}]")
         if self.sample_n is not None and self.sample_n < 1:
             raise ValueError(f"sample_n must be >= 1 or None, got {self.sample_n}")
+
+
+def validate_selection(policy: str, tolerance: float, budget: int) -> None:
+    """Validate the shared selection contract before any evaluations."""
+    if policy not in ("best_score", "lowest_k"):
+        raise ValueError("selection_policy must be best_score or lowest_k")
+    if type(budget) is not int or budget < 0:
+        raise ValueError("refinement_trials must be a nonnegative integer")
+    if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)):
+        raise ValueError("score_tolerance must be a finite nonnegative number")
+    if not math.isfinite(tolerance) or tolerance < 0:
+        raise ValueError("score_tolerance must be finite and nonnegative")
+    if policy == "lowest_k" and budget == 0:
+        raise ValueError("lowest_k requires refinement_trials > 0")
+    if policy == "best_score" and (budget != 0 or tolerance != 0):
+        raise ValueError("best_score requires refinement_trials=0 and score_tolerance=0")

@@ -16,7 +16,6 @@ Typical usage:
 
     # inspect results
     print(tuner.best_params)   # {"eps": 1.2, "k": 14, "topk": 7, "p": 2.0, "sigma": None}
-    print(tuner.best_tau)      # 0.8  — use at search time: aspace.search(q, gl, tau=tuner.best_tau)
     print(tuner.best_score)
 
     # optional: save full report (requires [report] extra)
@@ -25,8 +24,10 @@ Typical usage:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ import optuna
 
 from .core import StudyConfig, make_objective
 from .core.config import _DEFAULT_N_TRIALS
+from .core.selection import refinement_schedule, select_trial, trial_score, valid_trials
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ class EpsTuner:
     """
     Hyperparameter discovery for ArrowSpace via Optuna.
 
-    Searches over eps, k, and tau simultaneously using the spectral
+    Searches over eps and k using the spectral
     MRR-Top0 proxy as the objective (query-free, label-agnostic).
 
     Parameters
@@ -71,8 +73,6 @@ class EpsTuner:
         Log-scale search bounds for eps.
     k_low, k_high : int
         Search bounds for k (number of nearest neighbours).
-    tau_low, tau_high : float
-        Search bounds for tau (ArrowSpace search temperature).
     n_probe : int
         Number of anchor queries per trial for the MRR proxy.
         Scales search_batch cost linearly; 50 is the default (~ 14% s.e.).
@@ -99,6 +99,13 @@ class EpsTuner:
     cluster_radius : float | None
         Optional squared L2 threshold for cluster creation passed to the
         ArrowSpace builder. None = use builder default.
+    selection_policy : str
+        "best_score" (default), or "lowest_k" for targeted refinement and
+        quality-first minimum-k selection.
+    score_tolerance : float
+        Absolute composite-score loss allowed by lowest_k. Default zero.
+    refinement_trials : int
+        Explicit extra attempt budget; must be positive with lowest_k.
 
     Attributes (available after .fit())
     ------------------------------------
@@ -106,13 +113,9 @@ class EpsTuner:
         Optimised **build-time** graph parameters:
         {"eps": float, "k": int, "topk": int, "p": float, "sigma": None}.
         Ready to be passed directly to ArrowSpaceBuilder.build().
-        Note: tau is NOT included here — see best_tau.
     graph_params : dict[str, Any]
         Convenience property returning the same dict as ``best_params``.
         Raises ``RuntimeError`` if called before ``.fit()``.
-    best_tau : float
-        Optimal search temperature found during tuning. **Query-time** param.
-        Use as: aspace.search(query, gl, tau=tuner.best_tau)
     best_score : float
         Best composite objective score achieved.
     best_fiedler : float
@@ -137,12 +140,13 @@ class EpsTuner:
         eps_high: float = 4.0,
         k_low: int = 3,
         k_high: int = 40,
-        tau_low: float = 0.1,
-        tau_high: float = 1.0,
         n_probe: int = 50,
         n_jobs: int = 1,
         max_clusters: int | None = None,
         cluster_radius: float | None = None,
+        selection_policy: str = "best_score",
+        score_tolerance: float = 0.0,
+        refinement_trials: int = 0,
     ) -> None:
         self._cfg = StudyConfig(
             n_trials=n_trials,
@@ -154,12 +158,13 @@ class EpsTuner:
             eps_high=eps_high,
             k_low=k_low,
             k_high=k_high,
-            tau_low=tau_low,
-            tau_high=tau_high,
             n_probe=n_probe,
             n_jobs=n_jobs,
             max_clusters=max_clusters,
             cluster_radius=cluster_radius,
+            selection_policy=selection_policy,
+            score_tolerance=score_tolerance,
+            refinement_trials=refinement_trials,
         )
 
         # Results — populated by .fit()
@@ -168,8 +173,9 @@ class EpsTuner:
         self.best_fiedler: float | None = None
         self.best_var_lambda: float | None = None
         self.best_mrr_proxy: float | None = None
-        self.best_tau: float | None = None  # query-time param, NOT in best_params
         self.study: optuna.Study | None = None
+        self.selection: dict[str, Any] = {}
+        self._selected_trial: optuna.trial.FrozenTrial | None = None
         self._last_report_path: Path | None = None
 
     # ── public interface ─────────────────────────────────────────────────────────
@@ -215,15 +221,11 @@ class EpsTuner:
             Optimised **build-time** graph parameters:
             {"eps": float, "k": int, "topk": int, "p": float, "sigma": None}.
             Ready to be passed directly to ArrowSpaceBuilder.build().
-            Note: tau is NOT included here — see ``best_tau``.
 
         Attributes (available after .fit())
         ------------------------------------
         best_params : dict[str, Any]
             Same dict as the return value (identity).
-        best_tau : float
-            Optimal search temperature found during tuning. **Query-time** param.
-            Use as: aspace.search(query, gl, tau=tuner.best_tau)
         best_score : float
             Best composite objective score achieved.
         best_fiedler : float
@@ -250,9 +252,8 @@ class EpsTuner:
         # ── pre-flight: warn when n_trials is below the pruner startup threshold ──
         if cfg.n_trials < 5:
             logger.warning(
-                "n_trials=%d is very low — the MedianPruner needs at least "
-                "n_startup_trials=4 completed trials to function. "
-                "With n_trials=1 every trial will be pruned and fit() will raise. "
+                "n_trials=%d is very low; search coverage is limited and the "
+                "MedianPruner only activates after its startup trials. "
                 "Recommend n_trials >= 10.",
                 cfg.n_trials,
             )
@@ -288,7 +289,7 @@ class EpsTuner:
             sampler = optuna.samplers.TPESampler(
                 seed=cfg.seed,
                 n_startup_trials=4,  # default 10 → 4: more informed trials
-                multivariate=True,  # joint posterior over (eps, k, tau)
+                multivariate=True,  # joint posterior over (eps, k)
                 group=True,
             )
             logger.info(
@@ -311,6 +312,37 @@ class EpsTuner:
             pruner=pruner,
             load_if_exists=cfg.storage is not None,
         )
+        contract = {
+            "version": "eps-k-fixed-evaluation-v1",
+            "data": hashlib.sha256(np.ascontiguousarray(embeddings).tobytes()).hexdigest(),
+            "shape": list(embeddings.shape),
+            "settings": {
+                name: getattr(cfg, name)
+                for name in (
+                    "seed",
+                    "sample_n",
+                    "n_probe",
+                    "eps_low",
+                    "eps_high",
+                    "k_low",
+                    "k_high",
+                    "max_clusters",
+                    "cluster_radius",
+                )
+            },
+        }
+        previous = study.user_attrs.get("evaluation_contract")
+        if (study.trials or previous is not None) and previous != contract:
+            raise RuntimeError("Incompatible evaluation contract; create a new study.")
+        if study.direction != optuna.study.StudyDirection.MAXIMIZE:
+            raise RuntimeError("Incompatible study direction; create a new study.")
+        if any(
+            t.state in (optuna.trial.TrialState.WAITING, optuna.trial.TrialState.RUNNING)
+            for t in study.trials
+        ):
+            raise RuntimeError("Study has unfinished trials; create a new study.")
+        study.set_user_attr("evaluation_contract", contract)
+        invocation = uuid.uuid4().hex
 
         # ── warm-start: enqueue one known-good anchor trial (#4) ───────────────
         # Gives the surrogate a reasonable starting point so trial 0 is
@@ -322,7 +354,6 @@ class EpsTuner:
                 {
                     "eps": max(cfg.eps_low, min(cfg.eps_high, 1.0)),
                     "k": max(cfg.k_low, min(cfg.k_high, 15)),
-                    "tau": max(cfg.tau_low, min(cfg.tau_high, 0.5)),
                 },
                 skip_if_exists=True,
             )
@@ -330,10 +361,16 @@ class EpsTuner:
         # ── run optimisation ────────────────────────────────────────────────────
         objective_fn, best_cache = make_objective(embeddings, cfg)
         objective: Callable[[optuna.Trial], float] = objective_fn  # type: ignore[assignment]
-        study.optimize(objective, n_trials=cfg.n_trials, n_jobs=cfg.n_jobs)
+
+        def main_objective(trial: optuna.Trial) -> float:
+            trial.set_user_attr("phase", "main")
+            trial.set_user_attr("invocation", invocation)
+            return objective(trial)
+
+        study.optimize(main_objective, n_trials=cfg.n_trials, n_jobs=cfg.n_jobs)
 
         # ── guard: all trials pruned ───────────────────────────────────────────
-        completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        completed = valid_trials(study.trials, cfg)
         if not completed:
             # If trials failed with exceptions (not statistical pruning),
             # surface the actual errors instead of the generic corpus advice.
@@ -359,12 +396,40 @@ class EpsTuner:
                 "sample_n." + detail
             )
 
+        anchor = min(completed, key=lambda t: (-trial_score(t), t.number))
+        schedule = []
+        if cfg.selection_policy == "lowest_k":
+            schedule = refinement_schedule(
+                cfg, k_anchor=anchor.params["k"], eps_anchor=anchor.params["eps"]
+            )
+        for point in schedule:
+            study.enqueue_trial(point, user_attrs={"phase": "refinement", "invocation": invocation})
+        if schedule:
+            study.optimize(objective, n_trials=len(schedule), n_jobs=cfg.n_jobs)
+
         # ── store results ─────────────────────────────────────────────────────
-        best = study.best_trial
-        raw_params = best.params  # {"eps": float, "k": int, "tau": float}
+        best = select_trial(study.trials, cfg)
+        raw_best = min(valid_trials(study.trials, cfg), key=lambda t: (-trial_score(t), t.number))
+        self._selected_trial = best
+        self.selection = {
+            "policy": cfg.selection_policy,
+            "score_tolerance": cfg.score_tolerance,
+            "selected_trial_number": best.number,
+            "raw_best_trial_number": raw_best.number,
+            "raw_best_score": raw_best.value,
+            "selected_score_gap": trial_score(raw_best) - trial_score(best),
+            "refinement_trials_requested": cfg.refinement_trials,
+            "refinement_trials_actual": len(schedule),
+            "invocation": invocation,
+        }
+        if cfg.selection_policy == "lowest_k" and not schedule:
+            self.selection["refinement_skip_reason"] = "anchor_at_k_low"
+        # This cache is not returned by fit(); release it rather than risk
+        # reusing a graph belonging to a different selected trial.
+        best_cache.clear()
+        raw_params = best.params  # {"eps": float, "k": int}
 
         self.study = study
-        self.best_tau = float(raw_params["tau"])  # saved separately — query-time only
         self.best_params = {
             "eps": raw_params["eps"],
             "k": raw_params["k"],
@@ -378,11 +443,10 @@ class EpsTuner:
         self.best_mrr_proxy = best.user_attrs.get("mrr_proxy")
 
         logger.info(
-            "EpsTuner finished | best score=%.6f | eps=%.5f k=%d tau=%.3f",
+            "EpsTuner finished | best score=%.6f | eps=%.5f k=%d",
             self.best_score,
             self.best_params["eps"],
             self.best_params["k"],
-            self.best_tau,
         )
 
         return self.best_params
@@ -414,7 +478,12 @@ class EpsTuner:
 
         from .reporting import save_results
 
-        path = save_results(self.study, out_dir=out_dir)
+        path = save_results(
+            self.study,
+            out_dir=out_dir,
+            selected_trial=self._selected_trial,
+            selection=dict(self.selection),
+        )
         self._last_report_path = path
         return path
 
@@ -516,9 +585,7 @@ class EpsTuner:
     def __repr__(self) -> str:
         fitted = self.best_params is not None
         status = (
-            f"best_score={self.best_score:.6f} "
-            f"params={self.best_params} "
-            f"best_tau={self.best_tau:.3f}"
+            f"best_score={self.best_score:.6f} params={self.best_params} "
             if fitted
             else "not fitted"
         )
@@ -527,6 +594,5 @@ class EpsTuner:
             f"n_trials={self._cfg.n_trials}, "
             f"eps=[{self._cfg.eps_low}, {self._cfg.eps_high}], "
             f"k=[{self._cfg.k_low}, {self._cfg.k_high}], "
-            f"tau=[{self._cfg.tau_low}, {self._cfg.tau_high}], "
             f"{status})"
         )

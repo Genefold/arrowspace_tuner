@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -45,6 +46,9 @@ except ImportError:
 def save_results(
     study: optuna.Study,
     out_dir: str | Path = "results",
+    *,
+    selected_trial: FrozenTrial | None = None,
+    selection: dict[str, object] | None = None,
 ) -> Path:
     """
     Persist study results to out_dir/<study_name>/<timestamp>/.
@@ -75,7 +79,7 @@ def save_results(
             "save_results requires the [report] extras. Run: pip install arrowspace-tuner[report]"
         )
 
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     run_dir = Path(out_dir) / study.study_name / ts
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -92,8 +96,10 @@ def save_results(
                 else None
             ),
         }
-        row.update(t.params)
-        row.update({f"attr_{k}": v for k, v in t.user_attrs.items()})
+        row.update({k: v for k, v in t.params.items() if k not in ("tau", "best_tau")})
+        row.update(
+            {f"attr_{k}": v for k, v in t.user_attrs.items() if k not in ("tau", "best_tau")}
+        )
         rows.append(row)
 
     df = pd.DataFrame(rows).sort_values("score", ascending=False)
@@ -102,24 +108,34 @@ def save_results(
     logger.info("Saved trials → %s", csv_path)
 
     # ── 2. best_params.json ───────────────────────────────────────────────────
-    best = study.best_trial
+    best = selected_trial if selected_trial is not None else study.best_trial
     best_dict = {
         "trial": best.number,
         "score": best.value,
-        "params": best.params,
-        "user_attrs": best.user_attrs,
+        "params": {
+            "eps": best.params["eps"],
+            "k": best.params["k"],
+            "topk": max(1, best.params["k"] // 2),
+            "p": 2.0,
+            "sigma": None,
+        },
+        "user_attrs": {k: v for k, v in best.user_attrs.items() if k not in ("tau", "best_tau")},
         "timestamp": ts,
         "study_name": study.study_name,
         "n_trials": len(study.trials),
     }
+    if selection is not None:
+        best_dict["selection"] = dict(selection)
     json_path = run_dir / "best_params.json"
     json_path.write_text(json.dumps(best_dict, indent=2))
     logger.info("Saved best params → %s", json_path)
 
     # ── 3. HTML plots ─────────────────────────────────────────────────────────
     if len(study.trials) > 1:
+        history = plot_optimization_history(study)
+        history.update_layout(title="Raw objective history (not lowest-k selection)")
         _save_html(
-            plot_optimization_history(study),
+            history,
             run_dir / "optimization_history.html",
         )
 
@@ -129,7 +145,7 @@ def save_results(
 
         if has_variance:
             _save_html(
-                plot_param_importances(study),
+                plot_param_importances(study, params=["eps", "k"]),
                 run_dir / "param_importances.html",
             )
             _save_html(
@@ -144,6 +160,9 @@ def save_results(
 
     # ── 4. console summary ────────────────────────────────────────────────────
     _print_summary(best, run_dir, df)
+    if selection:
+        print(f"  Raw-score winner : #{selection['raw_best_trial_number']}", file=sys.stderr)
+        print(f"  Selected trial   : #{selection['selected_trial_number']}", file=sys.stderr)
 
     return run_dir
 
@@ -167,21 +186,23 @@ def _print_summary(
     df: pd.DataFrame,
 ) -> None:
     completed = df[df["state"] == "COMPLETE"]
-    print("\n" + "=" * 60)
-    print(f"  Results saved → {run_dir}")
-    print("=" * 60)
-    print(f"  Trials total     : {len(df)}")
-    print(f"  Trials completed : {len(completed)}")
+    print("\n" + "=" * 60, file=sys.stderr)
+    print(f"  Results saved → {run_dir}", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
+    print(f"  Trials total     : {len(df)}", file=sys.stderr)
+    print(f"  Trials completed : {len(completed)}", file=sys.stderr)
     if not completed.empty:
         nonzero = completed[completed["score"] > 0]
-        print(f"  Trials score > 0 : {len(nonzero)}")
-        print(f"  Score mean       : {completed['score'].mean():.8f}")
-        print(f"  Score std        : {completed['score'].std():.8f}")
-    print("-" * 60)
-    print(f"  Best trial       : #{best.number}")
-    print(f"  Best score       : {best.value:.8f}")
+        print(f"  Trials score > 0 : {len(nonzero)}", file=sys.stderr)
+        print(f"  Score mean       : {completed['score'].mean():.8f}", file=sys.stderr)
+        print(f"  Score std        : {completed['score'].std():.8f}", file=sys.stderr)
+    print("-" * 60, file=sys.stderr)
+    print(f"  Selected trial   : #{best.number}", file=sys.stderr)
+    print(f"  Selected score   : {best.value:.8f}", file=sys.stderr)
     for k, v in best.params.items():
-        print(f"  {k:<16} : {v}")
+        if k not in ("tau", "best_tau"):
+            print(f"  {k:<16} : {v}", file=sys.stderr)
     for k, v in best.user_attrs.items():
-        print(f"  {k:<16} : {v}")
-    print("=" * 60)
+        if k not in ("tau", "best_tau"):
+            print(f"  {k:<16} : {v}", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)

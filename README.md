@@ -61,7 +61,7 @@ results = aspace.search(query_embedding, gl, tau=0.8)
 > `load_best_params()` is deprecated — use `load_graph_params()`.
 > `EpsTuner.fit()` now returns `dict` (graph_params), not `(aspace, gl)`.
 
-### Build-time vs. search-time parameters
+### Graph parameters
 
 ```text
 graph_params:
@@ -69,16 +69,43 @@ graph_params:
   Expected native ArrowSpace keys:
   eps, k, topk, p, sigma.
 
-best_tau:
-  Search-time parameter.
-  It is intentionally excluded from graph_params.
 ```
 
 Every public result dictionary — from `tune()`, `EpsTuner.fit()`,
 `EpsTuner.graph_params`, and `load_graph_params()` — uses the bindings-native
 `topk` key and can be passed verbatim to `ArrowSpaceBuilder().build()`.
-`best_tau` is a separate search-time result: use it at query time as
-`aspace.search(q, gl, tau=tuner.best_tau)`.
+Only eps and k are optimized. Retrieval scoring uses fixed internal tau=0.5;
+no optimized search temperature is returned.
+
+### Prefer smaller graphs
+
+```python
+graph_params = arrowspace_tuner.tune(
+    embeddings,
+    n_trials=15,
+    selection_policy="lowest_k",
+    refinement_trials=8,  # extra attempts beyond n_trials
+    score_tolerance=0.0,
+)
+```
+
+The extra phase explicitly explores smaller k and higher eps, including
+`k_low` at `eps_high`, plus full-range eps exploration. This is a heuristic,
+not an assumed inverse eps/k relationship. Select the smallest evaluated k
+whose composite score is at least the best score minus `score_tolerance`.
+Zero means exact score ties; positive tolerance is an absolute score difference,
+not a percentage. There is no global minimum-k guarantee. If the main winner
+already has k_low, refinement is skipped.
+
+`best_score` remains the default policy (no refinement or tolerance).
+`lowest_k` requires a positive explicit `refinement_trials` budget.
+`tuner.selection` and structured CLI/MCP results describe the selected trial,
+raw-score winner, gap, and requested/actual refinement attempts.
+Optuna's `study.best_trial` still means the raw-score winner.
+
+**Migration:** tau bounds and the separate best_tau result have been removed.
+Use a new study for old tau-optimized runs; incompatible evaluation contracts
+are rejected before adding trials. Existing saved graph parameters remain loadable.
 
 ## Power-user API
 
@@ -101,13 +128,11 @@ tuner = EpsTuner(
 )
 
 graph_params = tuner.fit(embeddings)
-best_tau = tuner.best_tau           # query-time only — not in graph_params
 
 # The caller owns the build step
 aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)
 
 print(graph_params)          # {"eps": 1.615, "k": 38, "topk": 19, "p": ..., "sigma": ...}
-print(tuner.best_tau)        # 0.114  — query-time only, not in graph_params
 print(tuner.best_score)      # 2.138
 print(tuner.best_fiedler)    # 0.718  — graph connectivity health
 print(tuner.best_mrr_proxy)  # 2.896  — retrieval coherence proxy
@@ -131,6 +156,8 @@ pip install "arrowspace-tuner[mcp]"
 
 arrowspace-tuner tune corpus_embeddings.npy \
   --trials 15 \
+  --selection-policy lowest_k \
+  --refinement-trials 8 \
   --format json \
   --output tuning_result.json
 ```
@@ -182,7 +209,7 @@ aspace, gl = ArrowSpaceBuilder().build(
 hits = aspace.search(
     query_embedding,
     gl,
-    tau=result["best_tau"],
+    tau=0.5,  # caller-selected query-time setting
 )
 ```
 
@@ -201,7 +228,6 @@ and progress go to stderr only, so the stream is safe to pipe. The schema
   "schema_version": "1.0",
   "status": "ok",
   "graph_params": {"eps": 1.615376, "k": 38, "topk": 19, "p": 2.0, "sigma": null},
-  "best_tau": 0.8,
   "best_score": 2.138421,
   "n_trials_complete": 12,
   "n_trials_pruned": 3,
@@ -213,7 +239,7 @@ and progress go to stderr only, so the stream is safe to pipe. The schema
 ```
 
 Guarantees: `graph_params` uses the native `topk` key (never `top_k`) and
-never contains `tau`; `best_tau` is a top-level search-time key; failures
+never contains `tau`; no best_tau field is returned; failures
 also print valid JSON (`status: "validation_error" | "tuning_error" |
 "output_error"`, with `error_code` and `error_message`) and exit non-zero;
 a declared output failure never carries a partial graph configuration.
@@ -274,15 +300,16 @@ score = 0.70 * mrr_top0_spectral   # retrieval coherence
 
 ## Parallel runs
 
-Optuna + SQLite lets you run multiple workers simultaneously:
+Use in-process workers for parallel trial evaluation:
 
-```bash
-# Terminal 1
-python -m arrowspace_tuner --storage sqlite:///tune.db --trials 15
-
-# Terminal 2 (simultaneously)
-python -m arrowspace_tuner --storage sqlite:///tune.db --trials 15
+```python
+tuner = EpsTuner(n_trials=30, n_jobs=4)
+graph_params = tuner.fit(embeddings)
 ```
+
+Use `n_jobs=1` for reproducible trial scheduling. Concurrent processes must not
+share a study during phase orchestration; unfinished studies are rejected on
+resume. Compatible completed studies can be resumed sequentially.
 
 ## Requirements
 

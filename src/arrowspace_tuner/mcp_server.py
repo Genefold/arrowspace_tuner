@@ -34,8 +34,6 @@ from arrowspace_tuner.io import (
 from arrowspace_tuner.models import (
     GRAPH_BUILD_KEYS,
     SCHEMA_VERSION,
-    TAU_HIGH,
-    TAU_LOW,
     TuneRequest,
     embedding_info_to_dict,
     tune_result_to_dict,
@@ -65,7 +63,7 @@ _DEFAULT_MAX_N_JOBS = 4
 _SERVER_DESCRIPTION = (
     "Local, query-free tuning of ArrowSpace graph-construction parameters from "
     "trusted local embedding arrays. Returns ArrowSpace-compatible graph "
-    "parameters (eps, k, topk, p, sigma) and a separate best_tau search-time "
+    "parameters (eps, k, topk, p, sigma) and quality diagnostics. "
     "value."
 )
 
@@ -169,7 +167,6 @@ def _error(error_code: str, error_message: str) -> dict[str, object]:
         "error_code": error_code,
         "error_message": error_message,
         "graph_params": None,
-        "best_tau": None,
     }
 
 
@@ -289,18 +286,27 @@ def _tool_tune_graph(
     eps_high: float = 12.0,
     k_low: int = 10,
     k_high: int = 45,
-    tau_low: float = 0.0,
-    tau_high: float = 1.0,
     n_probe: int = 50,
     n_jobs: int = 1,
     save_report: bool = False,
     report_dir: str | None = None,
+    selection_policy: str = "best_score",
+    score_tolerance: float = 0.0,
+    refinement_trials: int = 0,
 ) -> dict[str, object]:
     # Reject over-limit requests before touching the filesystem or Optuna.
-    if n_trials > ctx.limits.max_trials:
+    from .core.config import validate_selection
+
+    try:
+        validate_selection(selection_policy, score_tolerance, refinement_trials)
+    except ValueError as exc:
+        return _error("invalid_selection", str(exc))
+    if type(n_trials) is not int or n_trials < 1:
+        return _error("invalid_trials", "n_trials must be a positive integer")
+    if n_trials + refinement_trials > ctx.limits.max_trials:
         return _error(
             "invalid_trials",
-            f"n_trials {n_trials} exceeds the configured maximum "
+            f"Total trials {n_trials + refinement_trials} exceeds the configured maximum "
             f"{ctx.limits.max_trials}; raise {_MAX_TRIALS_ENV} to allow more.",
         )
     if n_jobs > ctx.limits.max_n_jobs:
@@ -333,8 +339,9 @@ def _tool_tune_graph(
         eps_high=eps_high,
         k_low=k_low,
         k_high=k_high,
-        tau_low=tau_low,
-        tau_high=tau_high,
+        selection_policy=selection_policy,
+        score_tolerance=score_tolerance,
+        refinement_trials=refinement_trials,
         n_probe=n_probe,
         n_jobs=n_jobs,
         report_dir=Path(report_resolved) if report_resolved else None,
@@ -430,23 +437,8 @@ def _validate_build_instruction_params(
     }
 
 
-def _validate_best_tau(best_tau: object) -> float:
-    """Validate best_tau: real number in [0, 1]; strings, booleans, NaN,
-    and infinity are rejected."""
-    if isinstance(best_tau, bool) or not isinstance(best_tau, (int, float)):
-        raise InputValidationError("best_tau must be a number.", code="invalid_tau")
-    tau = float(best_tau)
-    if not math.isfinite(tau) or not TAU_LOW <= tau <= TAU_HIGH:
-        raise InputValidationError(
-            f"best_tau must be within [{TAU_LOW}, {TAU_HIGH}]; got {tau}.",
-            code="invalid_tau",
-        )
-    return tau
-
-
 def _tool_build_instruction(
     graph_params: dict[str, object],
-    best_tau: float,
 ) -> dict[str, object]:
     if not isinstance(graph_params, dict) or set(graph_params) != set(GRAPH_BUILD_KEYS):
         return _error(
@@ -455,21 +447,17 @@ def _tool_build_instruction(
         )
     try:
         validated = _validate_build_instruction_params(graph_params)
-        tau = _validate_best_tau(best_tau)
     except InputValidationError as exc:
         return _error(exc.code, str(exc))
     return {
         "graph_params": validated,
-        "search_tau": tau,
         "python_example": (
             "from arrowspace import ArrowSpaceBuilder\n"
             "\n"
             "aspace, gl = ArrowSpaceBuilder().build(graph_params, embeddings)\n"
-            "hits = aspace.search(query_embedding, gl, tau=search_tau)\n"
         ),
         "notes": [
             "graph_params contains build-time parameters only",
-            "search_tau is separate and must not be passed to ArrowSpaceBuilder.build",
         ],
     }
 
@@ -483,8 +471,6 @@ def _tool_get_tuner_info() -> dict[str, object]:
         "arrowspace_requirement": ">=0.30.0,<0.31",
         "supported_input_formats": ["npy", "npz"],
         "graph_build_keys": list(GRAPH_BUILD_KEYS),
-        "search_time_key": "best_tau",
-        "tau_range": [TAU_LOW, TAU_HIGH],
         "default_n_trials": 15,
         "default_n_probe": 50,
         "security": {
@@ -546,16 +532,16 @@ def build_server(ctx: McpContext) -> _ServerLike:
         eps_high: float = 12.0,
         k_low: int = 10,
         k_high: int = 45,
-        tau_low: float = 0.0,
-        tau_high: float = 1.0,
         n_probe: int = 50,
         n_jobs: int = 1,
         save_report: bool = False,
         report_dir: str | None = None,
+        selection_policy: str = "best_score",
+        score_tolerance: float = 0.0,
+        refinement_trials: int = 0,
     ) -> dict[str, object]:
         """Tune ArrowSpace graph parameters (eps, k, topk, p, sigma) from a
-        local embedding file and return a TuneResult with a separate
-        best_tau search-time value."""
+        local embedding file and return graph parameters and quality diagnostics."""
         return _tool_tune_graph(
             ctx,
             path,
@@ -567,21 +553,21 @@ def build_server(ctx: McpContext) -> _ServerLike:
             eps_high,
             k_low,
             k_high,
-            tau_low,
-            tau_high,
             n_probe,
             n_jobs,
             save_report,
             report_dir,
+            selection_policy,
+            score_tolerance,
+            refinement_trials,
         )
 
     @server.tool()
     def build_instruction(
         graph_params: dict[str, object],
-        best_tau: float,
     ) -> dict[str, object]:
-        """Turn tuned graph_params plus best_tau into an ArrowSpace build/search instruction."""
-        return _tool_build_instruction(graph_params, best_tau)
+        """Turn tuned graph_params into an ArrowSpace build instruction."""
+        return _tool_build_instruction(graph_params)
 
     @server.tool()
     def get_tuner_info() -> dict[str, object]:

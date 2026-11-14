@@ -28,8 +28,6 @@ def _make_tuner(**overrides: object) -> EpsTuner:
         eps_high=2.0,
         k_low=3,
         k_high=10,
-        tau_low=0.3,
-        tau_high=1.2,
         n_probe=20,
     )
     defaults.update(overrides)
@@ -47,8 +45,12 @@ class TestEpsTunerInit:
         assert tuner.best_fiedler is None
         assert tuner.best_var_lambda is None
         assert tuner.best_mrr_proxy is None
-        assert tuner.best_tau is None
         assert tuner.study is None
+
+    def test_tau_is_not_a_public_result_attribute(self) -> None:
+        tuner = EpsTuner()
+
+        assert not hasattr(tuner, "best_tau")
 
     def test_repr_before_fit(self) -> None:
         tuner = _make_tuner()
@@ -108,11 +110,11 @@ class TestStudyConfigValidation:
         with pytest.raises(ValueError, match="k_low"):
             StudyConfig(k_low=20, k_high=5)
 
-    def test_raises_on_inverted_tau_bounds(self) -> None:
+    def test_tau_bounds_are_not_supported(self) -> None:
         from arrowspace_tuner import StudyConfig
 
-        with pytest.raises(ValueError, match="tau_low"):
-            StudyConfig(tau_low=1.0, tau_high=0.1)
+        with pytest.raises(TypeError, match="tau_low"):
+            StudyConfig(tau_low=1.0)
 
     def test_raises_on_zero_trials(self) -> None:
         from arrowspace_tuner import StudyConfig
@@ -223,7 +225,7 @@ class TestFitAllPruned:
         tuner = EpsTuner(n_trials=5, seed=3407, eps_low=0.5, eps_high=3.0)
         params = tuner.fit(X)
         assert set(params.keys()) == {"eps", "k", "topk", "p", "sigma"}
-        assert tuner.best_tau is not None
+        assert not hasattr(tuner, "best_tau")
 
 
 # ── save_report — pre-fit guard ───────────────────────────────────────────────
@@ -264,7 +266,6 @@ class TestSaveReport:
 
         tuner = EpsTuner()
         tuner.study = study  # inject pre-built study
-        tuner.best_tau = 0.5
         tuner.best_params = {"eps": 1.0, "k": 10, "topk": 5, "p": 2.0, "sigma": None}
 
         # Patch pandas/plotly import to simulate missing [report] extra
@@ -312,7 +313,6 @@ class TestBestTauSeparation:
         best = study.best_trial
         raw = best.params
         tuner.study = study
-        tuner.best_tau = float(raw["tau"])
         tuner.best_params = {
             "eps": raw["eps"],
             "k": raw["k"],
@@ -342,15 +342,13 @@ class TestBestTauSeparation:
         assert tuner.best_params["p"] == 2.0
         assert tuner.best_params["sigma"] is None
 
-    def test_best_tau_populated(self) -> None:
+    def test_best_tau_not_exposed(self) -> None:
         tuner = self._make_fitted_tuner()
-        assert tuner.best_tau is not None
-        assert isinstance(tuner.best_tau, float)
-        assert tuner.best_tau == pytest.approx(0.75)
+        assert not hasattr(tuner, "best_tau")
 
     def test_best_tau_none_before_fit(self) -> None:
         tuner = EpsTuner()
-        assert tuner.best_tau is None
+        assert not hasattr(tuner, "best_tau")
 
     def test_topk_is_half_k(self) -> None:
         """topk must always be max(1, k // 2) — never the raw k."""
@@ -380,8 +378,8 @@ class TestBestTauSeparation:
     def test_repr_includes_best_tau_when_fitted(self) -> None:
         tuner = self._make_fitted_tuner()
         r = repr(tuner)
-        assert "best_tau" in r
-        assert "0.75" in r
+        assert "best_tau" not in r
+        assert "0.75" not in r
 
     def test_repr_omits_best_tau_when_not_fitted(self) -> None:
         tuner = EpsTuner()
@@ -415,11 +413,10 @@ class TestFitReturnsParams:
         result = tuner.fit(embeddings_small)
         assert not isinstance(result, tuple)
 
-    def test_best_tau_still_set(self, embeddings_small: np.ndarray) -> None:
+    def test_best_tau_not_returned(self, embeddings_small: np.ndarray) -> None:
         tuner = _make_tuner()
         tuner.fit(embeddings_small)
-        assert tuner.best_tau is not None
-        assert isinstance(tuner.best_tau, float)
+        assert not hasattr(tuner, "best_tau")
 
     def test_tune_return_type(self, embeddings_small: np.ndarray) -> None:
         result = tune(embeddings_small, n_trials=3, seed=42, sample_n=None, n_probe=20)

@@ -27,11 +27,11 @@ from arrowspace_tuner.service import inspect_embeddings, run_tuning, validate_re
 # ── request validation ────────────────────────────────────────────────────────
 
 
-def test_invalid_tau_bounds_return_validation_error(fast_tune_request: TuneRequest) -> None:
-    result = run_tuning(dataclasses.replace(fast_tune_request, tau_high=1.2))
+def test_invalid_selection_returns_validation_error(fast_tune_request: TuneRequest) -> None:
+    result = run_tuning(dataclasses.replace(fast_tune_request, selection_policy="invalid"))
     assert result.status == "validation_error"
-    assert result.error_code == "invalid_tau_bounds"
-    assert result.graph_params is None and result.best_tau is None
+    assert result.error_code == "invalid_selection"
+    assert result.graph_params is None and not hasattr(result, "best_tau")
 
 
 def test_invalid_eps_bounds_return_validation_error(fast_tune_request: TuneRequest) -> None:
@@ -56,9 +56,8 @@ def test_invalid_trial_and_job_counts_rejected(fast_tune_request: TuneRequest) -
 
 def test_tau_outside_unit_interval_rejected_not_clamped(fast_tune_request: TuneRequest) -> None:
     for kwargs in ({"tau_low": -0.1}, {"tau_high": 1.5}):
-        result = run_tuning(dataclasses.replace(fast_tune_request, **kwargs))
-        assert result.status == "validation_error"
-        assert result.error_code == "invalid_tau_bounds"
+        with pytest.raises(TypeError):
+            dataclasses.replace(fast_tune_request, **kwargs)
 
 
 def test_validate_request_raises(fast_tune_request: TuneRequest) -> None:
@@ -84,7 +83,7 @@ def test_dry_run_does_not_instantiate_eps_tuner(
     monkeypatch.setattr(service_module, "EpsTuner", _ExplodingTuner)
     result = run_tuning(dataclasses.replace(fast_tune_request, dry_run=True))
     assert result.status == "ok"
-    assert result.graph_params is None and result.best_tau is None
+    assert result.graph_params is None and not hasattr(result, "best_tau")
     assert result.input_info is not None
 
 
@@ -95,7 +94,7 @@ def test_valid_request_returns_ok_result(fast_tune_request: TuneRequest) -> None
     result = run_tuning(fast_tune_request)
     assert result.status == "ok"
     assert result.graph_params is not None
-    assert result.best_tau is not None
+    assert not hasattr(result, "best_tau")
     assert result.input_info is not None
 
 
@@ -112,8 +111,7 @@ def test_result_excludes_tau_from_graph_params(fast_tune_request: TuneRequest) -
     assert result.graph_params is not None
     assert "tau" not in result.graph_params
     assert "top_k" not in result.graph_params
-    assert result.best_tau is not None
-    assert 0.0 <= result.best_tau <= 1.0
+    assert "best_tau" not in tune_result_to_dict(result)
 
 
 def test_k_high_above_n_items_adds_clip_warning(fast_tune_request: TuneRequest) -> None:
@@ -129,7 +127,7 @@ def test_k_low_exceeds_corpus_returns_validation_error(fast_tune_request: TuneRe
     result = run_tuning(request)
     assert result.status == "validation_error"
     assert result.error_code == "k_low_exceeds_corpus"
-    assert result.graph_params is None and result.best_tau is None
+    assert result.graph_params is None and not hasattr(result, "best_tau")
     assert "120 rows" in (result.error_message or "")
 
 
@@ -178,7 +176,7 @@ def test_smallest_valid_k_path_is_explicit(
     result = run_tuning(request)
     assert result.status == "validation_error"
     assert result.error_code == "k_range_too_narrow"
-    assert result.graph_params is None and result.best_tau is None
+    assert result.graph_params is None and not hasattr(result, "best_tau")
 
 
 def test_all_pruned_tuner_failure_returns_tuning_error(
@@ -195,7 +193,7 @@ def test_all_pruned_tuner_failure_returns_tuning_error(
     result = run_tuning(fast_tune_request)
     assert result.status == "tuning_error"
     assert result.error_code == "no_valid_trials"
-    assert result.graph_params is None and result.best_tau is None
+    assert result.graph_params is None and not hasattr(result, "best_tau")
     assert result.error_message is not None
 
 
@@ -265,7 +263,7 @@ def test_report_write_oserror_returns_output_error(
     assert result.status == "output_error"
     assert result.error_code == "report_write_failed"
     assert result.graph_params is None
-    assert result.best_tau is None
+    assert not hasattr(result, "best_tau")
     assert result.report_path is None
     assert result.error_message is not None
 
@@ -285,7 +283,7 @@ def test_report_importerror_returns_output_error(
     assert result.status == "output_error"
     assert result.error_code == "report_write_failed"
     assert result.graph_params is None
-    assert result.best_tau is None
+    assert not hasattr(result, "best_tau")
 
 
 def test_report_failure_has_no_partial_graph_result(
@@ -301,10 +299,10 @@ def test_report_failure_has_no_partial_graph_result(
     assert result.status == "output_error"
     assert result.report_path is None
     assert result.graph_params is None
-    assert result.best_tau is None
+    assert not hasattr(result, "best_tau")
     payload = tune_result_to_dict(result)
     assert payload["graph_params"] is None
-    assert payload["best_tau"] is None
+    assert "best_tau" not in payload
 
 
 def test_save_report_true_returns_report_path(
@@ -326,13 +324,13 @@ def test_same_seed_and_fixture_give_same_params_and_tau(fast_tune_request: TuneR
     first = run_tuning(fast_tune_request)
     second = run_tuning(fast_tune_request)
     assert first.graph_params == second.graph_params
-    assert first.best_tau == second.best_tau
+    assert not hasattr(first, "best_tau") and not hasattr(second, "best_tau")
 
 
 def test_result_json_serialisation_converts_non_finite_to_null() -> None:
-    payload = tune_result_to_dict(TuneResult(best_score=float("nan"), best_tau=float("inf")))
+    payload = tune_result_to_dict(TuneResult(best_score=float("nan"), best_fiedler=float("inf")))
     assert payload["best_score"] is None
-    assert payload["best_tau"] is None
+    assert payload["best_fiedler"] is None
     assert payload["schema_version"] == SCHEMA_VERSION
 
 
